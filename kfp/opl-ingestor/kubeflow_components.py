@@ -58,7 +58,7 @@ def load_documents() -> list:
             practice_urls.append(full_url)
 
     # Limit the number of practices to process for testing
-    max_practices = 10  # Set to 0 for no limit
+    max_practices = 0  # Set to 0 for no limit
     if max_practices > 0:
         logger.info(f"Limiting to {max_practices} practices for processing")
         practice_urls = practice_urls[:max_practices]
