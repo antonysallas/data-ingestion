@@ -168,3 +168,4 @@ archive/
 *.bak
 bak/
 practices/
+*.log
