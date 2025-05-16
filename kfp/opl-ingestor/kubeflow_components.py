@@ -58,7 +58,7 @@ def load_documents() -> list:
             practice_urls.append(full_url)
 
     # Limit the number of practices to process for testing
-    max_practices = 0  # Set to 0 for no limit
+    max_practices = 10  # Set to 0 for no limit
     if max_practices > 0:
         logger.info(f"Limiting to {max_practices} practices for processing")
         practice_urls = practice_urls[:max_practices]
@@ -157,6 +157,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
 
                 # Extract title from first line (assumes markdown starts with # Title)
                 import re
+
                 title_match = re.match(r"^# (.+)$", content.split("\n")[0])
                 title = title_match.group(1) if title_match else md_file.stem
 
@@ -191,7 +192,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
         practice_content = {
             "title": "Unknown Title",
             "subtitle": "A Practice from the Open Practice Library",
-            "sections": {}
+            "sections": {},
         }
 
         # Extract title
@@ -238,8 +239,9 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
 
     def convert_html_to_markdown(html_content):
         """Convert HTML to Markdown format."""
-        from bs4 import BeautifulSoup
         import re
+
+        from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(html_content, "html.parser")
         markdown_output = []
@@ -271,8 +273,9 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
         """Process a single practice source and generate a markdown file."""
         logger.info(f"Processing {source}")
 
-        import requests
         import re
+
+        import requests
 
         try:
             # Fetch URL content
@@ -304,6 +307,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
         except Exception as e:
             logger.error(f"Error processing {source}: {str(e)}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -334,6 +338,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
 
                 # Add content
                 import re
+
                 content = re.sub(r"\n{3,}", "\n\n", content)
                 output.append(content)
                 output.append("")  # Empty line after content
@@ -343,6 +348,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
 
         # Remove any extra blank lines
         import re
+
         result = re.sub(r"\n{3,}", "\n\n", result)
 
         # Ensure the file ends with a newline
@@ -478,7 +484,9 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
 
     # Process each index and its documents
     # Additional logging to help debug
-    logger.info(f"Got document_splits: type={type(document_splits)}, content format={type(document_splits[0]) if document_splits else 'empty'}")
+    logger.info(
+        f"Got document_splits: type={type(document_splits)}, content format={type(document_splits[0]) if document_splits else 'empty'}"
+    )
 
     for index_data in document_splits:
         index_name = index_data["index_name"]
