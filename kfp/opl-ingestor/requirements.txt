@@ -1,0 +1,3 @@
+kfp==2.10.1
+kfp-kubernetes
+python-dotenv
