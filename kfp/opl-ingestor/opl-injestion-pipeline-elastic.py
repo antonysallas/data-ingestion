@@ -869,7 +869,7 @@ def main():
 
     # Limit the number of practices to process for testing
     # Set to None for production use
-    max_practices = 0  # Set to 0 for no limit
+    max_practices = 10  # Set to 0 for no limit
 
     # Uncomment for testing with a limited number of practices
     # max_practices = 10
@@ -929,10 +929,18 @@ def main():
         if ingest_to_es:
             _log.info("Preparing to ingest documents into Elasticsearch")
 
+            # Debug: List all environment variables (but don't print their values)
+            _log.info("Environment variables available: %s", ", ".join(sorted(os.environ.keys())))
+
             # Get Elasticsearch credentials from environment variables
             es_user = os.environ.get("ES_USER")
             es_pass = os.environ.get("ES_PASS")
             es_host = os.environ.get("ES_HOST")
+
+            # Debug: Check which credential variables are set
+            _log.info("ES_USER is %s", "set" if es_user else "NOT SET")
+            _log.info("ES_PASS is %s", "set" if es_pass else "NOT SET")
+            _log.info("ES_HOST is %s", "set" if es_host else "NOT SET")
 
             if not es_user or not es_pass or not es_host:
                 _log.error(
