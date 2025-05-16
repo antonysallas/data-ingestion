@@ -13,6 +13,7 @@ from kfp.kubernetes import kubernetes
 # Import Kubeflow Pipeline dependencies
 import kfp
 from kfp import dsl
+from kfp.dsl import Artifact, Input, Output
 
 # Configure module logger
 _log = logging.getLogger(__name__)
@@ -68,19 +69,20 @@ def load_documents() -> list:
 
 
 @dsl.component(
-    base_image="python:3.9",
+    base_image="python:3.11",
     packages_to_install=[
-        "requests",
-        "beautifulsoup4",
-        "langchain",
-        "langchain-elasticsearch",
-        "elasticsearch",
-        "huggingface-hub",
-        "transformers",
-        "torch",
+        "beautifulsoup4==4.12.2",
+        "html2text==2024.2.26",
+        "langchain-community==0.3.8",
+        "langchain==0.3.8",
+        "lxml==5.1.0",
+        "tqdm==4.66.2",
+        "elastic-transport==8.15.1",
+        "elasticsearch==8.16.0",
+        "langchain-elasticsearch==0.3.0",
     ],
 )
-def format_documents(documents: list) -> dict:
+def format_documents(documents: list, splits_artifact: Output[Artifact]):
     """
     KFP Component to format OPL documents into markdown and prepare for Elasticsearch.
 
@@ -178,63 +180,126 @@ def format_documents(documents: list) -> dict:
     # Prepare documents for Elasticsearch
     document_splits = prepare_documents_for_es(output_dir)
 
-    # Convert to JSON for passing between components
-    splits_json = json.dumps(document_splits)
-
-    # Return splits as an artifact
-    return {"splits_artifact": splits_json}
+    # Write splits to output artifact
+    with open(splits_artifact.path, "w") as f:
+        f.write(json.dumps(document_splits))
 
 
 @dsl.component(
-    base_image="python:3.9",
+    base_image="image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/minimal-gpu:2024.2",
     packages_to_install=[
-        "elasticsearch",
-        "langchain",
-        "langchain-elasticsearch",
-        "huggingface-hub",
-        "transformers",
-        "torch",
+        "langchain-community==0.3.8",
+        "langchain==0.3.8",
+        "elastic-transport==8.15.1",
+        "elasticsearch==8.16.0",
+        "langchain-elasticsearch==0.3.0",
+        "sentence-transformers==2.4.0",
+        "einops==0.7.0",
     ],
 )
-def ingest_documents(input_artifact: str) -> None:
+def ingest_documents(input_artifact: Input[Artifact]) -> None:
     """
     KFP Component to ingest documents into Elasticsearch.
 
     Args:
-        input_artifact: JSON string containing document splits
+        input_artifact: Artifact containing document splits
     """
     import json
     import logging
     import os
 
+    from elasticsearch import Elasticsearch
+    from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+    from langchain_core.documents import Document
+    from langchain_elasticsearch import ElasticsearchStore
+
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("ingest_documents")
 
+    # Read input artifact
+    with open(input_artifact.path) as input_file:
+        splits_artifact = input_file.read()
+        document_splits = json.loads(splits_artifact)
+
     # Log environment variables (for debugging)
-    logger.info("Environment variables available:")
-    for key in sorted(os.environ.keys()):
-        if key.startswith("ES_"):
-            logger.info(f"  {key}: {'set' if os.environ.get(key) else 'NOT SET'}")
+    logger.info("Environment variables for Elasticsearch:")
+    logger.info(f"ES_USER: {'SET' if os.environ.get('ES_USER') else 'NOT SET'}")
+    logger.info(f"ES_PASS: {'SET' if os.environ.get('ES_PASS') else 'NOT SET'}")
+    logger.info(f"ES_HOST: {'SET' if os.environ.get('ES_HOST') else 'NOT SET'}")
 
     # Get Elasticsearch credentials from environment variables
     es_user = os.environ.get("ES_USER")
     es_pass = os.environ.get("ES_PASS")
     es_host = os.environ.get("ES_HOST")
 
+    # Check if required credentials are set
     if not es_user or not es_pass or not es_host:
-        logger.error(
-            "Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables."
-        )
+        logger.error("Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables.")
         return
 
-    # Parse input artifact
-    document_splits = json.loads(input_artifact)
+    # Initialize Elasticsearch client
+    logger.info(f"Connecting to Elasticsearch at {es_host}")
+    es_client = Elasticsearch(
+        es_host,
+        basic_auth=(es_user, es_pass),
+        request_timeout=30,
+        verify_certs=False
+    )
 
-    # In a real component, you would import this function from its module
-    from opl.elasticsearch_ingest import ingest_to_elasticsearch
+    # Health check for Elasticsearch client connection
+    logger.info(f"Elasticsearch cluster status: {es_client.cluster.health()}")
 
-    # Call ingest_to_elasticsearch function
-    ingest_to_elasticsearch(document_splits)
+    def ingest(index_name, splits):
+        """Ingest documents into Elasticsearch with embeddings."""
+        # Initialize embedding model
+        model_name = "nomic-ai/nomic-embed-text-v1"
+
+        # Set model parameters for GPU (if available)
+        device = "cuda" if os.environ.get("NVIDIA_VISIBLE_DEVICES") else "cpu"
+        logger.info(f"Using device: {device} for embeddings")
+
+        model_kwargs = {"trust_remote_code": True, "device": device}
+
+        # Initialize embeddings
+        logger.info(f"Initializing embeddings model: {model_name}")
+        embeddings = HuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs=model_kwargs,
+            show_progress=True,
+            encode_kwargs={"normalize_embeddings": True},
+        )
+
+        # Initialize Elasticsearch store with embeddings
+        logger.info(f"Creating/updating index: {index_name}")
+        db = ElasticsearchStore(
+            index_name=index_name.lower(),  # index names in elastic must be lowercase
+            embedding=embeddings,
+            es_connection=es_client,
+        )
+
+        # Add documents in batches
+        batch_size = 50
+        total_batches = (len(splits) + batch_size - 1) // batch_size
+
+        for i in range(0, len(splits), batch_size):
+            batch = splits[i : i + batch_size]
+            batch_num = (i // batch_size) + 1
+            logger.info(f"Uploading batch {batch_num}/{total_batches} ({len(batch)} documents) to index {index_name}")
+            db.add_documents(batch)
+
+        logger.info(f"Successfully uploaded all documents to index {index_name}")
+
+    # Process each index and its documents
+    for index_data in document_splits:
+        index_name = index_data["index_name"]
+        splits = index_data["splits"]
+        logger.info(f"Processing index {index_name} with {len(splits)} documents")
+
+        # Convert to Document objects
+        documents = [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits]
+
+        # Ingest documents
+        ingest(index_name=index_name, splits=documents)
 
     logger.info("Elasticsearch ingestion complete")
 
@@ -255,7 +320,7 @@ def ingestion_pipeline():
     ingest_docs_task = ingest_documents(input_artifact=format_docs_task.outputs["splits_artifact"])
     ingest_docs_task.set_accelerator_type("nvidia.com/gpu").set_accelerator_limit("1")
 
-    # Set environment variables for Elasticsearch
+    # Set environment variables for Elasticsearch - following exactly the same pattern as the working pipeline
     kubernetes.use_secret_as_env(
         ingest_docs_task,
         secret_name="elasticsearch-es-elastic-user",

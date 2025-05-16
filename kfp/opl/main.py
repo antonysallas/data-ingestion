@@ -2,18 +2,18 @@
 Main entry point for Open Practice Library Ingestion Pipeline.
 
 This script fetches practice content from the Open Practice Library website,
-processes it into markdown, and ingests it into Elasticsearch.
+processes it into markdown, and ingests it into Elasticsearch using Kubeflow Pipelines.
 
 Environment variables:
-  - ES_USER: Elasticsearch username
-  - ES_PASS: Elasticsearch password
-  - ES_HOST: Elasticsearch host URL
-  - KUBEFLOW_ENDPOINT: Kubeflow pipeline endpoint (for pipeline usage)
-  - BEARER_TOKEN: Authentication token for Kubeflow (for pipeline usage)
+  - KUBEFLOW_ENDPOINT: Kubeflow pipeline endpoint (required)
+  - BEARER_TOKEN: Authentication token for Kubeflow (required)
+  - ES_USER: Elasticsearch username (used only in local mode)
+  - ES_PASS: Elasticsearch password (used only in local mode)
+  - ES_HOST: Elasticsearch host URL (used only in local mode)
 
 Usage:
-  python main.py  # Run in standalone mode
-  python main.py --pipeline  # Run in pipeline mode
+  python main.py  # Run in pipeline mode (default)
+  python main.py --local  # Run in local standalone mode
 """
 
 import argparse
@@ -38,8 +38,8 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="OPL Ingestion Pipeline")
 
-    # Mode selection
-    parser.add_argument("--pipeline", action="store_true", help="Run in pipeline mode")
+    # Mode selection - keeping for backward compatibility but not using by default
+    parser.add_argument("--local", action="store_true", help="Run in local standalone mode instead of pipeline mode")
 
     # Configuration options
     parser.add_argument(
@@ -56,13 +56,13 @@ def parse_args():
     )
     parser.add_argument("--delay", type=float, default=1.0, help="Delay between requests in seconds")
 
-    # Elasticsearch options
-    parser.add_argument("--skip-es", action="store_true", help="Skip Elasticsearch ingestion")
+    # Elasticsearch options - keeping for backward compatibility but not using by default
+    parser.add_argument("--skip-es", action="store_true", help="Skip Elasticsearch ingestion (for local mode only)")
 
     # Elasticsearch configuration (when not using environment variables)
-    parser.add_argument("--es-user", type=str, help="Elasticsearch username")
-    parser.add_argument("--es-pass", type=str, help="Elasticsearch password")
-    parser.add_argument("--es-host", type=str, help="Elasticsearch host URL")
+    parser.add_argument("--es-user", type=str, help="Elasticsearch username (for local mode only)")
+    parser.add_argument("--es-pass", type=str, help="Elasticsearch password (for local mode only)")
+    parser.add_argument("--es-host", type=str, help="Elasticsearch host URL (for local mode only)")
 
     return parser.parse_args()
 
@@ -264,17 +264,15 @@ def main():
     """Main entry point for the script."""
     args = parse_args()
 
-    # Auto-detect pipeline mode by checking environment variables
-    # If KUBEFLOW_ENDPOINT is set and we're running from a container, assume pipeline mode
-    auto_pipeline_mode = os.environ.get("KUBEFLOW_ENDPOINT") is not None and os.path.exists("/.dockerenv")
-
-    if args.pipeline or auto_pipeline_mode:
-        # In pipeline mode, don't skip Elasticsearch ingestion by default
-        if not hasattr(args, "skip_es") or args.skip_es is None:
-            args.skip_es = False
-        return run_pipeline_mode()
-    else:
+    # Always run in pipeline mode unless explicitly requested to run locally
+    if args.local:
+        _log.info("Running in local standalone mode (--local flag specified)")
         return run_standalone_mode(args)
+    else:
+        # In pipeline mode, ensure Elasticsearch ingestion is enabled
+        args.skip_es = False
+        _log.info("Running in pipeline mode (default)")
+        return run_pipeline_mode()
 
 
 if __name__ == "__main__":
