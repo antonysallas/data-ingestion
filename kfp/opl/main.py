@@ -59,6 +59,11 @@ def parse_args():
     # Elasticsearch options
     parser.add_argument("--skip-es", action="store_true", help="Skip Elasticsearch ingestion")
 
+    # Elasticsearch configuration (when not using environment variables)
+    parser.add_argument("--es-user", type=str, help="Elasticsearch username")
+    parser.add_argument("--es-pass", type=str, help="Elasticsearch password")
+    parser.add_argument("--es-host", type=str, help="Elasticsearch host URL")
+
     return parser.parse_args()
 
 
@@ -192,10 +197,19 @@ def run_standalone_mode(args):
 
                 _log.info("Preparing to ingest documents into Elasticsearch")
 
-                # Get Elasticsearch credentials from environment variables
-                es_user = os.environ.get("ES_USER")
-                es_pass = os.environ.get("ES_PASS")
-                es_host = os.environ.get("ES_HOST")
+                # Get Elasticsearch credentials from environment variables or command line arguments
+                es_user = args.es_user or os.environ.get("ES_USER")
+                es_pass = args.es_pass or os.environ.get("ES_PASS")
+                es_host = args.es_host or os.environ.get("ES_HOST")
+
+                # Try to use defaults if not specified
+                if not es_user:
+                    es_user = "elastic"
+                    _log.info("ES_USER not specified, using default value 'elastic'")
+
+                if not es_host:
+                    es_host = "http://elasticsearch-es-http:9200"
+                    _log.info(f"ES_HOST not specified, using default value '{es_host}'")
 
                 # Log which variables are set (without revealing values)
                 _log.info("ES_USER is %s", "set" if es_user else "NOT SET")
@@ -204,10 +218,16 @@ def run_standalone_mode(args):
 
                 if not es_user or not es_pass or not es_host:
                     _log.error(
-                        "Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables."
+                        "Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables "
+                        "or provide them via command line arguments."
                     )
                     _log.error("Exiting without ingesting to Elasticsearch.")
                     return 1
+
+                # Set environment variables for the current process
+                os.environ["ES_USER"] = es_user
+                os.environ["ES_PASS"] = es_pass
+                os.environ["ES_HOST"] = es_host
 
                 try:
                     # Prepare documents for Elasticsearch
