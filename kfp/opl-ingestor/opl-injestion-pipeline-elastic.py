@@ -869,7 +869,7 @@ def main():
 
     # Limit the number of practices to process for testing
     # Set to None for production use
-    max_practices = None
+    max_practices = 0  # Set to 0 for no limit
 
     # Uncomment for testing with a limited number of practices
     # max_practices = 10
@@ -897,7 +897,7 @@ def main():
             _log.error("No practice URLs found from website. Exiting.")
             sys.exit(1)
 
-        # Limit the number of practices to process if MAX_PRACTICES is set
+        # Limit the number of practices to process if max_practices is set
         if max_practices > 0:
             _log.info(f"Limiting to {max_practices} practices for processing")
             practice_urls = practice_urls[:max_practices]
