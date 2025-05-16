@@ -458,7 +458,7 @@ def process_practice(source, output_dir):
     # Attempt to import html_processing - try different approaches
     try:
         # Try package import first
-        from opl.html_processing import extract_opl_content
+        from opl_ingestor.html_processing import extract_opl_content
     except ImportError:
         try:
             # Fall back to direct import

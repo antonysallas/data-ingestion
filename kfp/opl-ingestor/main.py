@@ -82,7 +82,7 @@ def run_pipeline_mode():
     try:
         # Try to import from package first
         try:
-            from opl.kubeflow_components import run_kubeflow_pipeline
+            from opl_ingestor.kubeflow_components import run_kubeflow_pipeline
         except ImportError:
             # If that fails, try importing directly
             import kubeflow_components
@@ -108,7 +108,7 @@ def run_standalone_mode(args):
     def import_module(module_name, fallback_file):
         try:
             # Try to import from package first
-            return importlib.import_module(f"opl.{module_name}")
+            return importlib.import_module(f"opl_ingestor.{module_name}")
         except ImportError:
             # If that fails, try importing directly
             if importlib.util.find_spec(module_name):

@@ -33,7 +33,7 @@ def extract_opl_content(html_content):
     # Import functions from markdown_processing, handling both package and direct imports
     try:
         # Try package import first
-        from opl.markdown_processing import (
+        from opl_ingestor.markdown_processing import (
             clean_markdown,
             clean_text,
             convert_html_to_markdown,

@@ -159,9 +159,9 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
         pass
 
     # In a real component, you would import these functions from their respective modules
-    from opl.elasticsearch_ingest import prepare_documents_for_es
-    from opl.html_processing import extract_opl_content
-    from opl.markdown_processing import process_practice
+    from opl_ingestor.elasticsearch_ingest import prepare_documents_for_es
+    from opl_ingestor.html_processing import extract_opl_content
+    from opl_ingestor.markdown_processing import process_practice
 
     # Process each URL
     successful = 0

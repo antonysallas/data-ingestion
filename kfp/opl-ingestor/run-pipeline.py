@@ -2,7 +2,7 @@
 """
 Script to run the OPL ingestion pipeline directly in OpenShift.
 
-This script directly uses the pipeline definition from the opl module 
+This script directly uses the pipeline definition from the opl module
 to ensure proper execution in the OpenShift environment.
 """
 
@@ -13,12 +13,11 @@ from pathlib import Path
 # Add the parent directory to the Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
+# Import the pipeline definition from opl_ingestor.kubeflow_components
+from opl_ingestor.kubeflow_components import ingestion_pipeline
+
 # Import kfp modules
 import kfp
-from kfp import kubernetes
-
-# Import the pipeline definition from opl.kubeflow_components
-from opl.kubeflow_components import ingestion_pipeline
 
 
 def main():
@@ -28,7 +27,7 @@ def main():
     if not KUBEFLOW_ENDPOINT:
         print("KUBEFLOW_ENDPOINT environment variable not set.")
         return 1
-    
+
     print(f"Connecting to Kubeflow at: {KUBEFLOW_ENDPOINT}")
 
     # Get authentication token
@@ -65,10 +64,11 @@ def main():
 
     print(f"Pipeline run created: {result.run_id}")
     print(f"You can view this run in the Kubeflow Pipelines UI at: {KUBEFLOW_ENDPOINT}")
-    
+
     return 0
 
 
 if __name__ == "__main__":
     import time
+
     sys.exit(main())
