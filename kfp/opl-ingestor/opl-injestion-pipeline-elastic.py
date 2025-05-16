@@ -869,7 +869,10 @@ def main():
 
     # Limit the number of practices to process for testing
     # Set to None for production use
-    max_practices = 10
+    max_practices = None
+
+    # Uncomment for testing with a limited number of practices
+    # max_practices = 10
 
     # Delay between requests to avoid overloading the server
     request_delay = 1.0
