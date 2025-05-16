@@ -112,19 +112,244 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Created temporary output directory: {output_dir}")
 
-    # Import directly from the current directory
-    import os
-    import sys
+    # In Kubeflow components, we need to include our dependencies in the component itself
+    # since module references aren't directly available
 
-    # Add current directory to path
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    if current_dir not in sys.path:
-        sys.path.insert(0, current_dir)
+    # First define the necessary functions inline within the component
+    def prepare_documents_for_es(output_dir):
+        """
+        Prepare processed markdown documents for Elasticsearch ingestion.
 
-    # Direct imports from current directory
-    from elasticsearch_ingest import prepare_documents_for_es
-    from html_processing import extract_opl_content
-    from markdown_processing import process_practice
+        Args:
+            output_dir: Directory containing the markdown files
+
+        Returns:
+            list: List of objects with index_name and splits fields
+        """
+        logger.info(f"Preparing documents from {output_dir} for Elasticsearch ingestion")
+
+        # Check if output directory exists and contains files
+        if not output_dir.exists() or not output_dir.is_dir():
+            logger.error(f"Output directory '{output_dir}' not found")
+            return []
+
+        # Find all markdown files
+        md_files = list(output_dir.glob("*.md"))
+
+        if not md_files:
+            logger.error(f"No markdown files found in '{output_dir}'")
+            return []
+
+        logger.info(f"Found {len(md_files)} markdown files to ingest")
+
+        # Create index name for Open Practice Library
+        index_name = "open_practice_library_en_us_2024".lower()
+
+        # Initialize documents list
+        documents = []
+
+        # Process each markdown file
+        for md_file in md_files:
+            try:
+                # Read markdown content
+                with open(md_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                # Extract title from first line (assumes markdown starts with # Title)
+                import re
+                title_match = re.match(r"^# (.+)$", content.split("\n")[0])
+                title = title_match.group(1) if title_match else md_file.stem
+
+                # Create metadata
+                metadata = {
+                    "source": "open_practice_library",
+                    "source_full_name": "Open Practice Library",
+                    "title": title,
+                    "filename": md_file.name,
+                    "version": "2024",
+                    "language": "en-US",
+                    "url": f"https://openpracticelibrary.com/practice/{md_file.stem}",
+                }
+
+                # Create document
+                document = {"page_content": content, "metadata": metadata}
+                documents.append(document)
+
+            except Exception as e:
+                logger.error(f"Error processing {md_file}: {str(e)}")
+
+        # Return document splits for Elasticsearch ingestion in the format expected by the pipeline
+        return [{"index_name": index_name, "splits": documents}]
+
+    def extract_opl_content(html_content):
+        """Extract content from Open Practice Library HTML."""
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # Initialize content dictionary
+        practice_content = {
+            "title": "Unknown Title",
+            "subtitle": "A Practice from the Open Practice Library",
+            "sections": {}
+        }
+
+        # Extract title
+        title_element = soup.select_one("h1")
+        if title_element:
+            practice_content["title"] = title_element.get_text().strip()
+
+        # Extract subtitle/description
+        subtitle = soup.select_one("meta[name='description']")
+        if subtitle and subtitle.get("content"):
+            practice_content["subtitle"] = subtitle.get("content").strip()
+
+        # Extract main content sections
+        sections = {}
+
+        # What is section
+        what_is = soup.select_one("div[data-testid='what_is']")
+        if what_is:
+            sections["What Is"] = convert_html_to_markdown(str(what_is))
+
+        # Why use section
+        why_use = soup.select_one("div[data-testid='why_use']")
+        if why_use:
+            sections["Why Do"] = convert_html_to_markdown(str(why_use))
+
+        # How to section
+        how_to = soup.select_one("div[data-testid='how_to']")
+        if how_to:
+            sections["How to do"] = convert_html_to_markdown(str(how_to))
+
+        # Add additional sections if they exist
+        further_info = soup.select_one("div[data-testid='further_info']")
+        if further_info:
+            sections["Further Information"] = convert_html_to_markdown(str(further_info))
+
+        related_practices = soup.select_one("div[data-testid='related']")
+        if related_practices:
+            sections["Related Practices"] = convert_html_to_markdown(str(related_practices))
+
+        # Add sections to content
+        practice_content["sections"] = sections
+
+        return practice_content
+
+    def convert_html_to_markdown(html_content):
+        """Convert HTML to Markdown format."""
+        from bs4 import BeautifulSoup
+        import re
+
+        soup = BeautifulSoup(html_content, "html.parser")
+        markdown_output = []
+
+        # Process headings
+        for h in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+            level = int(h.name[1])
+            markdown_output.append("#" * level + " " + h.get_text().strip())
+            markdown_output.append("")
+
+        # Process paragraphs
+        for p in soup.find_all("p"):
+            markdown_output.append(p.get_text().strip())
+            markdown_output.append("")
+
+        # Process lists
+        for ul in soup.find_all("ul"):
+            for li in ul.find_all("li"):
+                markdown_output.append("* " + li.get_text().strip())
+            markdown_output.append("")
+
+        # Clean up consecutive blank lines
+        result = "\n".join(markdown_output)
+        result = re.sub(r"\n{3,}", "\n\n", result)
+
+        return result
+
+    def process_practice(source, output_dir):
+        """Process a single practice source and generate a markdown file."""
+        logger.info(f"Processing {source}")
+
+        import requests
+        import re
+
+        try:
+            # Fetch URL content
+            response = requests.get(source)
+            html_content = response.text
+
+            # Extract content
+            practice_content = extract_opl_content(html_content)
+
+            if not practice_content["title"] or practice_content["title"] == "Unknown Title":
+                logger.warning(f"Could not extract title for {source}")
+                return False
+
+            # Generate markdown filename
+            practice_name = practice_content["title"].lower().replace(" ", "-").replace("$", "dollar-")
+            practice_name = re.sub(r"[^\w\-]", "", practice_name)  # Remove any non-alphanumeric/hyphen chars
+
+            # Generate markdown content
+            markdown_content = format_output(practice_content, "markdown")
+
+            # Write markdown file
+            output_path = output_dir / f"{practice_name}.md"
+            with output_path.open("w", encoding="utf-8") as fp:
+                fp.write(markdown_content)
+
+            logger.info(f"Successfully processed {practice_content['title']} -> {output_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error processing {source}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def format_output(practice_content, output_format="markdown"):
+        """Format practice content into markdown output."""
+        output = []
+
+        if output_format == "markdown":
+            # Document title and subtitle
+            output.append(f"# {practice_content['title']}")
+            output.append(f"## {practice_content['subtitle']}")
+            output.append("")  # Empty line
+
+            # Process each section with proper headings
+            for heading, content in practice_content["sections"].items():
+                # Format the main section headings
+                if "What Is" in heading:
+                    clean_heading = f"### What Is {practice_content['title']}"
+                elif "Why Do" in heading:
+                    clean_heading = f"### Why Do {practice_content['title']}"
+                elif "How to do" in heading:
+                    clean_heading = f"### How to do {practice_content['title']}"
+                else:
+                    clean_heading = f"### {heading}"
+
+                output.append(clean_heading)
+                output.append("")  # Empty line after heading
+
+                # Add content
+                import re
+                content = re.sub(r"\n{3,}", "\n\n", content)
+                output.append(content)
+                output.append("")  # Empty line after content
+
+        # Final cleanup to ensure consistent formatting
+        result = "\n".join(output)
+
+        # Remove any extra blank lines
+        import re
+        result = re.sub(r"\n{3,}", "\n\n", result)
+
+        # Ensure the file ends with a newline
+        if not result.endswith("\n"):
+            result += "\n"
+
+        return result
 
     # Process each URL
     successful = 0
