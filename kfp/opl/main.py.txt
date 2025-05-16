@@ -58,6 +58,11 @@ def parse_args():
 
     # Elasticsearch options
     parser.add_argument("--skip-es", action="store_true", help="Skip Elasticsearch ingestion")
+    parser.add_argument(
+        "--enable-es",
+        action="store_true",
+        help="Enable Elasticsearch ingestion for local runs (disabled by default locally)",
+    )
 
     return parser.parse_args()
 
@@ -135,8 +140,8 @@ def run_standalone_mode(args):
         # Delay between requests to avoid overloading the server
         request_delay = args.delay
 
-        # Skip Elasticsearch ingestion if explicitly disabled
-        skip_es = args.skip_es
+        # Skip Elasticsearch ingestion unless explicitly enabled
+        skip_es = not args.enable_es
 
         # Create output directory if it doesn't exist
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -180,7 +185,7 @@ def run_standalone_mode(args):
         )
         _log.info(f"Markdown files saved to {output_dir.absolute()}")
 
-        # Ingest documents into Elasticsearch by default unless skip_es is provided
+        # Ingest documents into Elasticsearch only if explicitly enabled
         if not skip_es:
             _log.info("Elasticsearch ingestion is enabled")
 
@@ -228,7 +233,7 @@ def run_standalone_mode(args):
             except ImportError:
                 _log.warning("Elasticsearch module could not be imported. Skipping Elasticsearch ingestion.")
         else:
-            _log.info("Elasticsearch ingestion is disabled with --skip-es flag")
+            _log.info("Elasticsearch ingestion is disabled (use --enable-es to enable it)")
 
         return 0
 
