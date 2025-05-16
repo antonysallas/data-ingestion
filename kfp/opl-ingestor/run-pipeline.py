@@ -8,13 +8,16 @@ to ensure proper execution in the OpenShift environment.
 
 import os
 import sys
+import time
 from pathlib import Path
 
-# Add the parent directory to the Python path
-sys.path.append(str(Path(__file__).parent.parent))
+# Add the current directory to the Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
-# Import the pipeline definition from opl_ingestor.kubeflow_components
-from opl_ingestor.kubeflow_components import ingestion_pipeline
+# Import the pipeline definition
+from kubeflow_components import ingestion_pipeline
 
 # Import kfp modules
 import kfp

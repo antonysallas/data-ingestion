@@ -1,9 +1,10 @@
 import os
 from typing import List, NamedTuple
 
+from kfp.dsl import Artifact, Input, Output
+
 import kfp
 from kfp import dsl, kubernetes
-from kfp.dsl import Artifact, Input, Output
 
 
 @dsl.component()
@@ -27,12 +28,7 @@ def load_documents() -> List:
             "4.17",
             "en-US",
         ),
-        Product(
-            "red_hat_enterprise_linux", 
-            "Red Hat Enterprise Linux 9", 
-            "9", 
-            "en-US"
-        ),
+        Product("red_hat_enterprise_linux", "Red Hat Enterprise Linux 9", "9", "en-US"),
         Product(
             "red_hat_ansible_automation_platform",
             "Red Hat Ansible Automation Platform",
@@ -214,7 +210,9 @@ def format_documents(documents: List, splits_artifact: Output[Artifact]):
             ("###", "Header3"),
         ]
 
-        markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on, strip_headers=True)
+        markdown_splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=headers_to_split_on, strip_headers=True
+        )
 
         # Markdown split
         new_splits: List[Document] = []
@@ -327,10 +325,7 @@ def ingest_documents(input_artifact: Input[Artifact]):
         exit(1)
 
     # Iniatilize Elastic client
-    es_client = Elasticsearch(es_host, 
-                              basic_auth=(es_user, es_pass), 
-                              request_timeout=30, 
-                              verify_certs=False)
+    es_client = Elasticsearch(es_host, basic_auth=(es_user, es_pass), request_timeout=30, verify_certs=False)
 
     # # Health check for elastic client connection
     print(f"Elastic Client status: {es_client.health_report()}")
@@ -355,7 +350,9 @@ def ingest_documents(input_artifact: Input[Artifact]):
         db.add_documents(splits)
 
     for index_name, splits in document_splits:
-        documents = [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits]
+        documents = [
+            Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits
+        ]
         ingest(index_name=index_name, splits=documents)
 
     print("Finished!")
@@ -408,4 +405,3 @@ if __name__ == "__main__":
         experiment_name="document_ingestion",
         # enable_caching=False
     )
-

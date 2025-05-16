@@ -107,17 +107,20 @@ def run_standalone_mode(args):
     # Import modules using a helper function to handle different import methods
     def import_module(module_name, fallback_file):
         try:
-            # Try to import from package first
-            return importlib.import_module(f"opl_ingestor.{module_name}")
+            # First try direct import from current directory
+            return importlib.import_module(module_name)
         except ImportError:
-            # If that fails, try importing directly
-            if importlib.util.find_spec(module_name):
+            try:
+                # Try to import from current package using relative import
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                sys.path.insert(0, current_dir)
                 return importlib.import_module(module_name)
-            # If all else fails, provide a helpful error
-            _log.error(
-                f"Could not import module '{module_name}'. Make sure '{fallback_file}' is in the current directory."
-            )
-            raise
+            except ImportError:
+                # If all else fails, provide a helpful error
+                _log.error(
+                    f"Could not import module '{module_name}'. Make sure '{fallback_file}' is in the current directory."
+                )
+                raise
 
     try:
         # Import HTML processing module
@@ -264,9 +267,15 @@ def main():
     """Main entry point for the script."""
     args = parse_args()
 
-    # Always run in pipeline mode unless explicitly requested to run locally
-    if args.local:
-        _log.info("Running in local standalone mode (--local flag specified)")
+    # Check for conditions that should trigger local mode
+    run_local = args.local or args.skip_es or not os.environ.get("KUBEFLOW_ENDPOINT")
+
+    if run_local:
+        mode_reason = "--local flag specified" if args.local else (
+            "--skip-es flag specified" if args.skip_es else
+            "KUBEFLOW_ENDPOINT not set"
+        )
+        _log.info(f"Running in local standalone mode ({mode_reason})")
         return run_standalone_mode(args)
     else:
         # In pipeline mode, ensure Elasticsearch ingestion is enabled

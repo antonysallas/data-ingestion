@@ -8,12 +8,11 @@ definition for the OPL ingestion pipeline.
 import logging
 import os
 
-from kfp.kubernetes import kubernetes
+from kfp.dsl import Artifact, Input, Output
 
 # Import Kubeflow Pipeline dependencies
 import kfp
-from kfp import dsl
-from kfp.dsl import Artifact, Input, Output
+from kfp import dsl, kubernetes
 
 # Configure module logger
 _log = logging.getLogger(__name__)
@@ -108,60 +107,19 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
     output_dir = Path("practices")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # In KFP component, manually import the functions we need
-    # For simplicity in this component, we'll include the processing code here
-    # In a real application, you would use proper imports
+    # Import directly from the current directory
+    import os
+    import sys
 
-    # HTML processing functions
-    def convert_html_to_markdown(html_content):
-        """Convert HTML content to Markdown"""
-        # Implementation...
-        pass
+    # Add current directory to path
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
 
-    def process_list(ul_element, indent=0, global_processed=None):
-        """Process an unordered list element"""
-        # Implementation...
-        pass
-
-    def process_ordered_list(ol_element, indent=0, global_processed=None):
-        """Process an ordered list element"""
-        # Implementation...
-        pass
-
-    def clean_text(text):
-        """Clean up text by removing special characters"""
-        # Implementation...
-        pass
-
-    def clean_markdown(markdown_text):
-        """Clean and normalize markdown text"""
-        # Implementation...
-        pass
-
-    def extract_opl_content(html_content):
-        """Extract content from OPL HTML"""
-        # Implementation...
-        pass
-
-    def format_output(practice_content, output_format="markdown"):
-        """Format practice content into specified format"""
-        # Implementation...
-        pass
-
-    def process_practice(source, output_dir):
-        """Process a practice source and generate markdown"""
-        # Implementation...
-        pass
-
-    def prepare_documents_for_es(output_dir):
-        """Prepare markdown documents for Elasticsearch"""
-        # Implementation...
-        pass
-
-    # In a real component, you would import these functions from their respective modules
-    from opl_ingestor.elasticsearch_ingest import prepare_documents_for_es
-    from opl_ingestor.html_processing import extract_opl_content
-    from opl_ingestor.markdown_processing import process_practice
+    # Direct imports from current directory
+    from elasticsearch_ingest import prepare_documents_for_es
+    from html_processing import extract_opl_content
+    from markdown_processing import process_practice
 
     # Process each URL
     successful = 0
@@ -234,17 +192,14 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
 
     # Check if required credentials are set
     if not es_user or not es_pass or not es_host:
-        logger.error("Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables.")
+        logger.error(
+            "Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables."
+        )
         return
 
     # Initialize Elasticsearch client
     logger.info(f"Connecting to Elasticsearch at {es_host}")
-    es_client = Elasticsearch(
-        es_host,
-        basic_auth=(es_user, es_pass),
-        request_timeout=30,
-        verify_certs=False
-    )
+    es_client = Elasticsearch(es_host, basic_auth=(es_user, es_pass), request_timeout=30, verify_certs=False)
 
     # Health check for Elasticsearch client connection
     logger.info(f"Elasticsearch cluster status: {es_client.cluster.health()}")
@@ -284,7 +239,9 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
         for i in range(0, len(splits), batch_size):
             batch = splits[i : i + batch_size]
             batch_num = (i // batch_size) + 1
-            logger.info(f"Uploading batch {batch_num}/{total_batches} ({len(batch)} documents) to index {index_name}")
+            logger.info(
+                f"Uploading batch {batch_num}/{total_batches} ({len(batch)} documents) to index {index_name}"
+            )
             db.add_documents(batch)
 
         logger.info(f"Successfully uploaded all documents to index {index_name}")
@@ -296,7 +253,9 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
         logger.info(f"Processing index {index_name} with {len(splits)} documents")
 
         # Convert to Document objects
-        documents = [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits]
+        documents = [
+            Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits
+        ]
 
         # Ingest documents
         ingest(index_name=index_name, splits=documents)
@@ -370,7 +329,6 @@ def run_kubeflow_pipeline():
     result = client.create_run_from_pipeline_func(
         ingestion_pipeline,
         experiment_name="document_ingestion",
-        # enable_caching=False
     )
 
     _log.info(f"Pipeline run created: {result.run_id}")
