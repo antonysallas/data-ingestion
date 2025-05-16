@@ -103,9 +103,14 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("format_documents")
 
-    # Create output directory
-    output_dir = Path("practices")
+    # Use a temporary directory that we have permission to create/write in container environment
+    import tempfile
+
+    # Create a temporary directory for storing the processed files
+    temp_dir = tempfile.mkdtemp()
+    output_dir = Path(temp_dir) / "practices"
     output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Created temporary output directory: {output_dir}")
 
     # Import directly from the current directory
     import os
@@ -247,6 +252,9 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
         logger.info(f"Successfully uploaded all documents to index {index_name}")
 
     # Process each index and its documents
+    # Additional logging to help debug
+    logger.info(f"Got document_splits: type={type(document_splits)}, content format={type(document_splits[0]) if document_splits else 'empty'}")
+
     for index_data in document_splits:
         index_name = index_data["index_name"]
         splits = index_data["splits"]

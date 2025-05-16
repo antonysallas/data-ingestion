@@ -221,14 +221,14 @@ def prepare_documents_for_es(output_dir):
     # Check if output directory exists and contains files
     if not output_dir.exists() or not output_dir.is_dir():
         _log.error(f"Output directory '{output_dir}' not found")
-        return None
+        return []  # Return empty list instead of None to avoid errors with JSON serialization
 
     # Find all markdown files
     md_files = list(output_dir.glob("*.md"))
 
     if not md_files:
         _log.error(f"No markdown files found in '{output_dir}'")
-        return None
+        return []  # Return empty list instead of None to avoid errors with JSON serialization
 
     _log.info(f"Found {len(md_files)} markdown files to ingest")
 
@@ -268,9 +268,9 @@ def prepare_documents_for_es(output_dir):
         except Exception as e:
             _log.error(f"Error processing {md_file}: {str(e)}")
 
-    # Return document splits for Elasticsearch ingestion
-    # Format as the same structure the successful program uses
-    return {index_name: documents}
+    # Return document splits for Elasticsearch ingestion in the format expected by the pipeline
+    # Format as an array of objects with index_name and splits fields
+    return [{"index_name": index_name, "splits": documents}]
 
 
 if __name__ == "__main__":
