@@ -57,9 +57,11 @@ def parse_args():
     parser.add_argument("--delay", type=float, default=1.0, help="Delay between requests in seconds")
 
     # Elasticsearch options
-    parser.add_argument("--skip-es", action="store_true", help="Skip Elasticsearch ingestion", default=True)
+    parser.add_argument("--skip-es", action="store_true", help="Skip Elasticsearch ingestion")
     parser.add_argument(
-        "--enable-es", action="store_true", help="Enable Elasticsearch ingestion (disabled by default)"
+        "--enable-es",
+        action="store_true",
+        help="Enable Elasticsearch ingestion for local runs (disabled by default locally)",
     )
 
     return parser.parse_args()
@@ -252,6 +254,9 @@ def main():
     auto_pipeline_mode = os.environ.get("KUBEFLOW_ENDPOINT") is not None and os.path.exists("/.dockerenv")
 
     if args.pipeline or auto_pipeline_mode:
+        # In pipeline mode, don't skip Elasticsearch ingestion by default
+        if not hasattr(args, "skip_es") or args.skip_es is None:
+            args.skip_es = False
         return run_pipeline_mode()
     else:
         return run_standalone_mode(args)
