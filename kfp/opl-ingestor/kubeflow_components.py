@@ -58,7 +58,7 @@ def load_documents() -> list:
             practice_urls.append(full_url)
 
     # Limit the number of practices to process for testing
-    max_practices = 10  # Set to 0 for no limit
+    max_practices = 0  # Set to 0 for no limit
     if max_practices > 0:
         logger.info(f"Limiting to {max_practices} practices for processing")
         practice_urls = practice_urls[:max_practices]
@@ -142,8 +142,8 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
 
         logger.info(f"Found {len(md_files)} markdown files to ingest")
 
-        # Create index name for Open Practice Library
-        index_name = "open_practice_library_en_us_2024".lower()
+        # Create index name for Open Practice Library - ensure it's lowercase and without special characters
+        index_name = "opl_practices_en_us".lower()
 
         # Initialize documents list
         documents = []
@@ -457,11 +457,37 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
             model_name=model_name,
             model_kwargs=model_kwargs,
             show_progress=True,
-            encode_kwargs={"normalize_embeddings": True},
+            # Remove encode_kwargs to match working implementation
         )
 
         # Initialize Elasticsearch store with embeddings
         logger.info(f"Creating/updating index: {index_name}")
+
+        # Check if index exists first
+        if not es_client.indices.exists(index=index_name.lower()):
+            logger.info(f"Index {index_name.lower()} doesn't exist. Creating it...")
+
+            # Create mappings for the index
+            mappings = {
+                "properties": {
+                    "text": {"type": "text"},
+                    "metadata": {"type": "object", "enabled": True},
+                    "vector": {"type": "dense_vector", "dims": 768, "index": True, "similarity": "cosine"}
+                }
+            }
+
+            # Create the index with appropriate settings
+            es_client.indices.create(
+                index=index_name.lower(),
+                mappings=mappings,
+                settings={
+                    "number_of_shards": 1,
+                    "number_of_replicas": 0
+                }
+            )
+            logger.info(f"Successfully created index {index_name.lower()}")
+
+        # Now create the ElasticsearchStore with the index
         db = ElasticsearchStore(
             index_name=index_name.lower(),  # index names in elastic must be lowercase
             embedding=embeddings,
@@ -488,10 +514,18 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
         f"Got document_splits: type={type(document_splits)}, content format={type(document_splits[0]) if document_splits else 'empty'}"
     )
 
+    if not document_splits:
+        logger.warning("No document splits found to process. Check previous steps.")
+        return
+
     for index_data in document_splits:
         index_name = index_data["index_name"]
         splits = index_data["splits"]
         logger.info(f"Processing index {index_name} with {len(splits)} documents")
+
+        if not splits:
+            logger.warning(f"No documents to process for index {index_name}. Skipping.")
+            continue
 
         # Convert to Document objects
         documents = [
