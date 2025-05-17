@@ -9,14 +9,103 @@ import importlib
 import logging
 import os
 import re
+from pathlib import Path
 
+import requests
 from bs4 import BeautifulSoup
+
+# Import html_processing functions
+try:
+    from .html_processing import extract_opl_content
+except ImportError:
+    try:
+        from . import html_processing
+
+        extract_opl_content = html_processing.extract_opl_content
+    except ImportError:
+        import sys
+
+        current_dir = Path(__file__).parent
+        if str(current_dir) not in sys.path:
+            sys.path.append(str(current_dir))
+        html_module = importlib.import_module("html_processing")
+        extract_opl_content = html_module.extract_opl_content
 
 # Configure module logger
 _log = logging.getLogger(__name__)
 
 # Constants
 HTML_PARSER = "html.parser"
+MULTIPLE_NEWLINES_PATTERN = r"\n{3,}"
+SECTION_WHAT_IS = "What Is"
+SECTION_WHY_DO = "Why Do"
+SECTION_HOW_TO = "How to do"
+
+
+def _process_heading(element, soup):
+    """Process a heading element into markdown."""
+    level = int(element.name[1])
+    if soup.select_one("div.MuiTypography-body1") and element.parent.name != "body":
+        level += 1
+    heading_text = element.get_text().strip()
+    return f"{'#' * level} {heading_text}\n"
+
+
+def _process_paragraph(element, processed_elements):
+    """Process a paragraph element into markdown."""
+    p_content = ""
+    for child in element.children:
+        if child.name == "strong" or (isinstance(child, str) and child.parent.name == "strong"):
+            p_content += f"**{child.get_text().strip()}**"
+        elif child.name == "em" or (isinstance(child, str) and child.parent.name == "em"):
+            p_content += f"**{child.get_text().strip()}**"
+        elif isinstance(child, str):
+            p_content += child
+        else:
+            processed_elements.add(id(child))
+            p_content += child.get_text()
+    return p_content.strip()
+
+
+def _should_process_element(element, processed_elements):
+    """Determine if an element should be processed."""
+    if id(element) in processed_elements:
+        return False
+    if element.parent.name in ["li", "ul", "ol"] and element.parent.parent.name != "body":
+        return False
+    if element.name == "p" and element.parent.name == "li" and len(element.find_next_siblings()) > 0:
+        return False
+    return True
+
+
+def _process_element(element, soup, processed_elements):
+    """Process a single element into markdown lines."""
+    if not _should_process_element(element, processed_elements):
+        return []
+
+    processed_elements.add(id(element))
+    markdown_lines = []
+
+    if element.name.startswith("h"):
+        markdown_lines.append(_process_heading(element, soup))
+        markdown_lines.append("")
+    elif element.name == "p":
+        paragraph_text = _process_paragraph(element, processed_elements)
+        if paragraph_text:
+            markdown_lines.append(paragraph_text)
+            markdown_lines.append("")
+    elif element.name == "ul" and element.parent.name != "li":
+        list_items = process_list(element, global_processed=processed_elements)
+        if list_items:
+            markdown_lines.extend(list_items)
+            markdown_lines.append("")
+    elif element.name == "ol" and element.parent.name != "li":
+        list_items = process_ordered_list(element, global_processed=processed_elements)
+        if list_items:
+            markdown_lines.extend(list_items)
+            markdown_lines.append("")
+
+    return markdown_lines
 
 
 def convert_html_to_markdown(html_content):
@@ -30,80 +119,55 @@ def convert_html_to_markdown(html_content):
         str: Markdown formatted content
     """
     soup = BeautifulSoup(html_content, HTML_PARSER)
+    processed_elements = set()
     markdown_output = []
-    processed_elements = set()  # Track which elements we've already processed
 
-    # Process elements in document order for better content flow
-    for element in soup.find_all(
-        ["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "em", "strong"], recursive=True
-    ):
-        # Skip already processed elements to avoid duplication
-        if id(element) in processed_elements:
-            continue
+    for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "em", "strong"], recursive=True):
+        markdown_output.extend(_process_element(element, soup, processed_elements))
 
-        processed_elements.add(id(element))
-
-        # Skip elements that are part of a parent we'll process separately
-        if element.parent.name in ["li", "ul", "ol"] and element.parent.parent.name != "body":
-            continue
-
-        # Skip paragraph elements that are just headers of list items (these create duplicates)
-        if element.name == "p" and element.parent.name == "li" and len(element.find_next_siblings()) > 0:
-            # Don't process paragraph text separately when it's a list item header with content
-            continue
-
-        if element.name.startswith("h"):
-            # Get heading level
-            level = int(element.name[1])
-            # For headings inside content sections (h3, h4, etc.), increase level by 1
-            if soup.select_one("div.MuiTypography-body1") and element.parent.name != "body":
-                level += 1
-            heading_text = element.get_text().strip()
-            markdown_output.append("#" * level + " " + heading_text)
-            markdown_output.append("")  # Empty line after heading
-
-        elif element.name == "p":
-            # Handle paragraphs with formatting
-            p_content = ""
-            for child in element.children:
-                if child.name == "strong" or (isinstance(child, str) and child.parent.name == "strong"):
-                    # Handle strong text
-                    p_content += f"**{child.get_text().strip()}**"
-                elif child.name == "em" or (isinstance(child, str) and child.parent.name == "em"):
-                    # Handle emphasized text - use double asterisks for all emphasis
-                    p_content += f"**{child.get_text().strip()}**"
-                elif isinstance(child, str):
-                    # Regular text
-                    p_content += child
-                else:
-                    # Other elements inside paragraph
-                    processed_elements.add(id(child))  # Mark child elements as processed
-                    p_content += child.get_text()
-
-            paragraph_text = p_content.strip()
-            if paragraph_text:
-                markdown_output.append(paragraph_text)
-                markdown_output.append("")  # Empty line after paragraph
-
-        elif element.name == "ul" and element.parent.name != "li":
-            # Only process top-level lists to avoid duplication
-            list_items = process_list(element, global_processed=processed_elements)
-            if list_items:
-                markdown_output.extend(list_items)
-                markdown_output.append("")  # Empty line after list
-
-        elif element.name == "ol" and element.parent.name != "li":
-            # Process ordered lists
-            list_items = process_ordered_list(element, global_processed=processed_elements)
-            if list_items:
-                markdown_output.extend(list_items)
-                markdown_output.append("")  # Empty line after list
-
-    # Clean up: remove consecutive empty lines
     result = "\n".join(markdown_output)
-    result = re.sub(r"\n{3,}", "\n\n", result)
+    return re.sub(MULTIPLE_NEWLINES_PATTERN, "\n\n", result)
 
-    return result
+
+def _process_paragraph_content(p_child, processed):
+    """Process content within a paragraph element."""
+    if p_child.name == "strong" or (isinstance(p_child, str) and p_child.parent.name == "strong"):
+        return f"**{p_child.get_text().strip()}**"
+    elif p_child.name == "em" or (isinstance(p_child, str) and p_child.parent.name == "em"):
+        return f"**{p_child.get_text().strip()}**"
+    elif isinstance(p_child, str):
+        return p_child
+    else:
+        processed.add(id(p_child))
+        return p_child.get_text()
+
+
+def _process_list_item_text(li, processed):
+    """Extract and process text content from a list item."""
+    content = []
+    direct_text = ""
+
+    for child in li.children:
+        if isinstance(child, str):
+            direct_text += child.strip() + " "
+        elif child.name == "p":
+            processed.add(id(child))
+            p_content = "".join(_process_paragraph_content(p_child, processed) for p_child in child.children)
+            if p_content.strip():
+                content.append(p_content.strip())
+
+    if direct_text.strip():
+        content.insert(0, direct_text.strip())
+    return content
+
+
+def _format_list_item(content, indent):
+    """Format list item content with proper indentation."""
+    if not content:
+        return []
+    lines = ["  " * indent + "* " + content[0]]
+    lines.extend("  " * indent + "  " + line for line in content[1:])
+    return lines
 
 
 def process_list(ul_element, indent=0, global_processed=None):
@@ -119,7 +183,6 @@ def process_list(ul_element, indent=0, global_processed=None):
         list: Lines of markdown formatted list
     """
     markdown_lines = []
-    # Use a shared set of processed elements if provided, or create a new one
     processed = global_processed if global_processed is not None else set()
 
     for li in ul_element.find_all("li", recursive=False):
@@ -127,62 +190,28 @@ def process_list(ul_element, indent=0, global_processed=None):
             continue
 
         processed.add(id(li))
-        # Get all content from the list item
-        content = []
+        content = _process_list_item_text(li, processed)
+        markdown_lines.extend(_format_list_item(content, indent))
 
-        # Handle direct text first
-        direct_text = ""
-        for child in li.children:
-            if isinstance(child, str):
-                direct_text += child.strip() + " "
-            elif child.name == "p":
-                # Track as processed to avoid duplication
-                processed.add(id(child))
-                # Handle formatted content within paragraphs
-                p_content = ""
-                for p_child in child.children:
-                    if p_child.name == "strong" or (
-                        isinstance(p_child, str) and p_child.parent.name == "strong"
-                    ):
-                        # Handle strong text
-                        p_content += f"**{p_child.get_text().strip()}**"
-                    elif p_child.name == "em" or (isinstance(p_child, str) and p_child.parent.name == "em"):
-                        # Handle emphasized text - use bold formatting
-                        p_content += f"**{p_child.get_text().strip()}**"
-                    elif isinstance(p_child, str):
-                        # Regular text
-                        p_content += p_child
-                    else:
-                        # Other elements
-                        processed.add(id(p_child))  # Mark content as processed
-                        p_content += p_child.get_text()
-
-                if p_content.strip():
-                    content.append(p_content.strip())
-
-        if direct_text.strip():
-            content.insert(0, direct_text.strip())
-
-        # Add the list item with proper indentation
-        if content:
-            # For the first line of content
-            markdown_lines.append("  " * indent + "* " + content[0])
-
-            # For additional lines of content (if any)
-            for line in content[1:]:
-                markdown_lines.append("  " * indent + "  " + line)
-
-        # Process nested unordered lists
+        # Process nested lists
         for nested_ul in li.find_all("ul", recursive=False):
             processed.add(id(nested_ul))
             markdown_lines.extend(process_list(nested_ul, indent + 1, processed))
 
-        # Process nested ordered lists
         for nested_ol in li.find_all("ol", recursive=False):
             processed.add(id(nested_ol))
             markdown_lines.extend(process_ordered_list(nested_ol, indent + 1, processed))
 
     return markdown_lines
+
+
+def _format_ordered_list_item(content, indent, number):
+    """Format ordered list item content with proper indentation and numbering."""
+    if not content:
+        return []
+    lines = ["  " * indent + f"{number}. " + content[0]]
+    lines.extend("  " * indent + "   " + line for line in content[1:])
+    return lines
 
 
 def process_ordered_list(ol_element, indent=0, global_processed=None):
@@ -198,7 +227,6 @@ def process_ordered_list(ol_element, indent=0, global_processed=None):
         list: Lines of markdown formatted ordered list
     """
     markdown_lines = []
-    # Use a shared set of processed elements if provided, or create a new one
     processed = global_processed if global_processed is not None else set()
 
     for i, li in enumerate(ol_element.find_all("li", recursive=False), 1):
@@ -206,50 +234,8 @@ def process_ordered_list(ol_element, indent=0, global_processed=None):
             continue
 
         processed.add(id(li))
-        # Get all content from the list item
-        content = []
-
-        # Handle direct text first
-        direct_text = ""
-        for child in li.children:
-            if isinstance(child, str):
-                direct_text += child.strip() + " "
-            elif child.name == "p":
-                # Track as processed to avoid duplication
-                processed.add(id(child))
-                # Handle formatted content within paragraphs
-                p_content = ""
-                for p_child in child.children:
-                    if p_child.name == "strong" or (
-                        isinstance(p_child, str) and p_child.parent.name == "strong"
-                    ):
-                        # Handle strong text
-                        p_content += f"**{p_child.get_text().strip()}**"
-                    elif p_child.name == "em" or (isinstance(p_child, str) and p_child.parent.name == "em"):
-                        # Handle emphasized text - use bold formatting
-                        p_content += f"**{p_child.get_text().strip()}**"
-                    elif isinstance(p_child, str):
-                        # Regular text
-                        p_content += p_child
-                    else:
-                        # Other elements
-                        processed.add(id(p_child))  # Mark content as processed
-                        p_content += p_child.get_text()
-
-                if p_content.strip():
-                    content.append(p_content.strip())
-
-        if direct_text.strip():
-            content.insert(0, direct_text.strip())
-
-        # Add the list item with proper indentation and numbering
-        if content:
-            # For the first line of content - use actual item number for correct numbering
-            markdown_lines.append("  " * indent + f"{i}. " + content[0])
-
-            # For additional lines of content (if any)
-            for line in content[1:]:
-                markdown_lines.append("  " * indent + "   " + line)
+        content = _process_list_item_text(li, processed)
+        markdown_lines.extend(_format_ordered_list_item(content, indent, i))
 
         # Process nested lists
         for nested_ul in li.find_all("ul", recursive=False):
@@ -345,7 +331,7 @@ def clean_markdown(markdown_text):
     # markdown_text = re.sub(r"(\n\s*)\d+\.\s", r"\g<1>1. ", markdown_text)
 
     # Remove excessive blank lines (more than 2)
-    markdown_text = re.sub(r"\n{3,}", r"\n\n", markdown_text)
+    markdown_text = re.sub(MULTIPLE_NEWLINES_PATTERN, r"\n\n", markdown_text)
 
     # Convert underscores to double asterisks for consistent emphasis
     markdown_text = re.sub(r"_(.*?)_", r"**\1**", markdown_text)
@@ -357,86 +343,145 @@ def clean_markdown(markdown_text):
     return markdown_text
 
 
+def _format_markdown_section(heading, content, title):
+    """Format a section in markdown format."""
+    if SECTION_WHAT_IS in heading:
+        clean_heading = f"### {SECTION_WHAT_IS} {title}"
+    elif SECTION_WHY_DO in heading:
+        clean_heading = f"### {SECTION_WHY_DO} {title}"
+    elif SECTION_HOW_TO in heading:
+        clean_heading = f"### {SECTION_HOW_TO} {title}"
+    else:
+        clean_heading = f"### {heading}"
+
+    return [clean_heading, "", re.sub(MULTIPLE_NEWLINES_PATTERN, "\n\n", content), ""]
+
+
+def _format_text_section(heading, content, title):
+    """Format a section in plain text format."""
+    if SECTION_WHAT_IS in heading:
+        clean_heading = f"{SECTION_WHAT_IS} {title}"
+    elif SECTION_WHY_DO in heading:
+        clean_heading = f"{SECTION_WHY_DO} {title}"
+    elif SECTION_HOW_TO in heading:
+        clean_heading = f"{SECTION_HOW_TO} {title}"
+    else:
+        clean_heading = heading
+
+    # Clean up content for plain text
+    content = re.sub(r"\*\*(.*?)\*\*", r"\1", content)  # Remove bold markers
+    content = re.sub(r"_(.*?)_", r"\1", content)  # Remove italic markers
+    content = re.sub(r"#{1,6}\s+", "", content)  # Remove markdown headings
+
+    return [clean_heading, "", content, ""]
+
+
+def _get_section_formatter(output_format, title):
+    """Get the appropriate section formatter function based on output format."""
+    if output_format == "markdown":
+
+        def format_section(heading, content):
+            return _format_markdown_section(heading, content, title)
+    else:  # text format
+
+        def format_section(heading, content):
+            return _format_text_section(heading, content, title)
+
+    return format_section
+
+
 def format_output(practice_content, output_format="markdown"):
-    """
-    Format the practice content into the specified output format.
-    Formats: 'markdown', 'text'
-
-    Args:
-        practice_content: Dictionary containing practice content
-        output_format: Output format ('markdown' or 'text')
-
-    Returns:
-        str: Formatted content
-    """
+    """Format practice content into markdown output."""
     output = []
 
     if output_format == "markdown":
-        # Document title and subtitle
+        # Document title and subtitle with proper spacing
+        output.append("")  # Blank line before title
         output.append(f"# {practice_content['title']}")
+        output.append("")  # Blank line after title
         output.append(f"## {practice_content['subtitle']}")
-        output.append("")  # Empty line
+        output.append("")  # Blank line after subtitle
 
         # Process each section with proper headings
         for heading, content in practice_content["sections"].items():
             # Format the main section headings
-            if "What Is" in heading:
-                clean_heading = f"### What Is {practice_content['title']}"
-            elif "Why Do" in heading:
-                clean_heading = f"### Why Do {practice_content['title']}"
-            elif "How to do" in heading:
-                clean_heading = f"### How to do {practice_content['title']}"
+            if SECTION_WHAT_IS in heading:
+                clean_heading = f"### {SECTION_WHAT_IS} {practice_content['title']}"
+            elif SECTION_WHY_DO in heading:
+                clean_heading = f"### {SECTION_WHY_DO} {practice_content['title']}"
+            elif SECTION_HOW_TO in heading:
+                clean_heading = f"### {SECTION_HOW_TO} {practice_content['title']}"
             else:
                 clean_heading = f"### {heading}"
 
+            output.append("")  # Blank line before heading
             output.append(clean_heading)
-            output.append("")  # Empty line after heading
+            output.append("")  # Blank line after heading
 
-            # Add content with proper formatting
-            # Ensure there's no duplicate line breaks
-            content = re.sub(r"\n{3,}", "\n\n", content)
+            # Add content
+            import re
+
+            content = re.sub(MULTIPLE_NEWLINES_PATTERN, "\n\n", content)
             output.append(content)
-            output.append("")  # Empty line after content
-
-    elif output_format == "text":
-        # Plain text format
-        output.append(f"{practice_content['title']}")
-        output.append(f"{practice_content['subtitle']}")
-        output.append("")
-
-        for heading, content in practice_content["sections"].items():
-            # Format section headings for plain text
-            if "What Is" in heading:
-                clean_heading = f"What Is {practice_content['title']}"
-            elif "Why Do" in heading:
-                clean_heading = f"Why Do {practice_content['title']}"
-            elif "How to do" in heading:
-                clean_heading = f"How to do {practice_content['title']}"
-            else:
-                clean_heading = heading
-
-            output.append(clean_heading)
-            output.append("")
-
-            # Clean up the content for plain text
-            content = re.sub(r"\*\*(.*?)\*\*", r"\1", content)  # Remove bold markers
-            content = re.sub(r"_(.*?)_", r"\1", content)  # Remove italic markers
-            content = re.sub(r"#{1,6}\s+", "", content)  # Remove markdown headings
-
-            output.append(content)
-            output.append("")
+            output.append("")  # Blank line after content
 
     # Final cleanup to ensure consistent formatting
     result = "\n".join(output)
 
-    # Remove any extra blank lines
-    result = re.sub(r"\n{3,}", "\n\n", result)
+    # Remove any extra blank lines while preserving heading spacing
+    import re
+
+    result = re.sub(MULTIPLE_NEWLINES_PATTERN, "\n\n", result)
 
     # Ensure the file ends with a newline
     if not result.endswith("\n"):
         result += "\n"
 
     return result
+
+
+def _get_html_content(source):
+    """Get HTML content from a source (URL or file path)."""
+    if isinstance(source, Path) or (isinstance(source, str) and os.path.exists(source)):
+        file_path = Path(source) if isinstance(source, str) else source
+        with open(file_path, encoding="utf-8") as f:
+            return f.read()
+    else:
+        response = requests.get(source, timeout=30)
+        return response.text
+
+
+def _get_practice_title(practice_content, source):
+    """Get or generate a practice title."""
+    if practice_content["title"] and practice_content["title"] != "Unknown Title":
+        return practice_content["title"]
+
+    if isinstance(source, Path) or (isinstance(source, str) and os.path.exists(source)):
+        file_path = Path(source) if isinstance(source, str) else source
+        filename_title = file_path.stem.replace("_", " ").replace("-", " ").title()
+        _log.info(f"Using filename as title: {filename_title}")
+        return filename_title
+
+    _log.warning(f"Could not extract title for {source}")
+    return None
+
+
+def _save_markdown_file(practice_content, output_dir):
+    """Save practice content as a markdown file."""
+    practice_name = practice_content["title"].lower().replace(" ", "-").replace("$", "dollar-")
+    practice_name = re.sub(r"[^\w\-]", "", practice_name)
+
+    # Clean all content
+    for section_key, section_content in practice_content["sections"].items():
+        practice_content["sections"][section_key] = clean_text(section_content)
+
+    markdown_content = format_output(practice_content, "markdown")
+    output_path = output_dir / f"{practice_name}.md"
+
+    with output_path.open("w", encoding="utf-8") as fp:
+        fp.write(markdown_content)
+
+    return output_path
 
 
 def process_practice(source, output_dir):
@@ -450,80 +495,24 @@ def process_practice(source, output_dir):
     Returns:
         bool: Success status
     """
-    # Import here to avoid circular imports
-    from pathlib import Path
-
-    import requests
-
-    # Attempt to import html_processing - try different approaches
-    try:
-        # Try package import first
-        from opl_ingestor.html_processing import extract_opl_content
-    except ImportError:
-        try:
-            # Fall back to direct import
-            from html_processing import extract_opl_content
-        except ImportError:
-            # If both fail, try to load the module dynamically
-            import sys
-
-            # Add current directory to path if needed
-            current_dir = Path(__file__).parent
-            if str(current_dir) not in sys.path:
-                sys.path.append(str(current_dir))
-
-            html_module = importlib.import_module("html_processing")
-            extract_opl_content = html_module.extract_opl_content
-
     try:
         _log.info(f"Processing {source}")
 
-        # Determine if source is a file path or URL
-        if isinstance(source, Path) or (isinstance(source, str) and os.path.exists(source)):
-            # Local file
-            file_path = Path(source) if isinstance(source, str) else source
+        # Get HTML content
+        html_content = _get_html_content(source)
 
-            with open(file_path, "r", encoding="utf-8") as f:
-                html_content = f.read()
-
-            source_id = str(file_path)
-        else:
-            # Assume URL
-            response = requests.get(source)
-            html_content = response.text
-            source_id = source
-
-        # Extract content
+        # Extract and process content
         practice_content = extract_opl_content(html_content)
+        title = _get_practice_title(practice_content, source)
 
-        if not practice_content["title"] or practice_content["title"] == "Unknown Title":
-            # For local files, try to extract a title from the filename
-            if isinstance(source, Path) or (isinstance(source, str) and os.path.exists(source)):
-                file_path = Path(source) if isinstance(source, str) else source
-                filename_title = file_path.stem.replace("_", " ").replace("-", " ").title()
-                practice_content["title"] = filename_title
-                _log.info(f"Using filename as title: {filename_title}")
-            else:
-                _log.warning(f"Could not extract title for {source_id}")
-                return False
+        if not title:
+            return False
 
-        # Generate markdown filename
-        practice_name = practice_content["title"].lower().replace(" ", "-").replace("$", "dollar-")
-        practice_name = re.sub(r"[^\w\-]", "", practice_name)  # Remove any non-alphanumeric/hyphen chars
+        practice_content["title"] = title
 
-        # Clean all content again to ensure no special characters remain
-        for section_key, section_content in practice_content["sections"].items():
-            practice_content["sections"][section_key] = clean_text(section_content)
-
-        # Generate markdown content
-        markdown_content = format_output(practice_content, "markdown")
-
-        # Write markdown file
-        output_path = output_dir / f"{practice_name}.md"
-        with output_path.open("w", encoding="utf-8") as fp:
-            fp.write(markdown_content)
-
-        _log.info(f"Successfully processed {practice_content['title']} -> {output_path}")
+        # Save markdown file
+        output_path = _save_markdown_file(practice_content, output_dir)
+        _log.info(f"Successfully processed {title} -> {output_path}")
         return True
 
     except Exception as e:

@@ -9,9 +9,120 @@ import json
 import logging
 import os
 import re
+import sys
+from pathlib import Path
+
+try:
+    from elasticsearch import Elasticsearch
+    from langchain.embeddings import HuggingFaceEmbeddings
+    from langchain_core.documents import Document
+    from langchain_elasticsearch import ElasticsearchStore
+except ImportError:
+    _log = logging.getLogger(__name__)
+    _log.error(
+        "Required libraries not found. Please install 'elasticsearch', 'langchain', and 'langchain-elasticsearch'"
+    )
+    sys.exit(1)
 
 # Configure module logger
 _log = logging.getLogger(__name__)
+
+
+def _load_document_splits(input_artifact):
+    """Load document splits from input artifact."""
+    if isinstance(input_artifact, str) or hasattr(input_artifact, "path"):
+        path = input_artifact.path if hasattr(input_artifact, "path") else input_artifact
+        try:
+            with open(path) as input_file:
+                return json.loads(input_file.read())
+        except Exception as e:
+            _log.error(f"Error reading input artifact: {str(e)}")
+            return None
+    elif isinstance(input_artifact, list):
+        return input_artifact
+    else:
+        _log.error(f"Unsupported input_artifact type: {type(input_artifact)}")
+        return None
+
+
+def _init_elasticsearch_client():
+    """Initialize and return Elasticsearch client."""
+    es_user = os.environ.get("ES_USER")
+    es_pass = os.environ.get("ES_PASS")
+    es_host = os.environ.get("ES_HOST")
+
+    _log.info("Environment variables for Elasticsearch:")
+    _log.info(f"ES_USER: {'SET' if es_user else 'NOT SET'}")
+    _log.info(f"ES_PASS: {'SET' if es_pass else 'NOT SET'}")
+    _log.info(f"ES_HOST: {'SET' if es_host else 'NOT SET'}")
+
+    if not all([es_user, es_pass, es_host]):
+        _log.error("Elasticsearch config not present. Please set ES_USER, ES_PASS, and ES_HOST environment variables.")
+        if __name__ != "__main__":
+            return None, 1
+        import sys
+
+        sys.exit(1)
+
+    try:
+        es_client = Elasticsearch(es_host, basic_auth=(es_user, es_pass), request_timeout=30, verify_certs=False)
+        health = es_client.cluster.health()
+        _log.info(f"Elasticsearch cluster status: {health['status']}")
+        return es_client, 0
+    except Exception as e:
+        _log.error(f"Failed to initialize Elasticsearch client: {str(e)}")
+        return None, 1
+
+
+def _init_embeddings():
+    """Initialize and return embeddings model."""
+    device = "cuda" if os.environ.get("NVIDIA_VISIBLE_DEVICES") else "cpu"
+    _log.info(f"Using device: {device} for embeddings")
+    model_name = "nomic-ai/nomic-embed-text-v1"
+    model_kwargs = {"trust_remote_code": True, "device": device}
+
+    _log.info(f"Initializing embeddings model: {model_name}")
+    return HuggingFaceEmbeddings(
+        model_name=model_name,
+        model_kwargs=model_kwargs,
+        show_progress=True,
+        encode_kwargs={"normalize_embeddings": True},
+    )
+
+
+def _process_index(index_data, es_client, embeddings):
+    """Process a single index and its documents."""
+    if not isinstance(index_data, dict) or "index_name" not in index_data or "splits" not in index_data:
+        return
+
+    index_name = index_data["index_name"]
+    splits = index_data["splits"]
+    _log.info(f"Processing index {index_name} with {len(splits)} documents")
+
+    documents = [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits]
+
+    try:
+        db = ElasticsearchStore(
+            index_name=index_name.lower(),
+            embedding=embeddings,
+            es_connection=es_client,
+        )
+
+        batch_size = 50
+        total_batches = (len(documents) + batch_size - 1) // batch_size
+
+        for i in range(0, len(documents), batch_size):
+            batch = documents[i : i + batch_size]
+            batch_num = (i // batch_size) + 1
+            _log.info(f"Uploading batch {batch_num}/{total_batches} to index {index_name}")
+            db.add_documents(batch)
+
+        _log.info(f"Successfully uploaded all documents to index {index_name}")
+    except Exception as e:
+        _log.error(f"Error ingesting documents: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
 
 
 def ingest_to_elasticsearch(input_artifact):
@@ -23,185 +134,30 @@ def ingest_to_elasticsearch(input_artifact):
     Args:
         input_artifact: Either a path to a JSON file or a list of document splits
     """
-    try:
-        from elasticsearch import Elasticsearch
-        from langchain.embeddings import HuggingFaceEmbeddings
-        from langchain_core.documents import Document
-        from langchain_elasticsearch import ElasticsearchStore
-    except ImportError:
-        _log.error(
-            "Required libraries not found. Please install 'elasticsearch', 'langchain', and 'langchain-elasticsearch'"
-        )
+    # Load document splits
+    document_splits = _load_document_splits(input_artifact)
+    if not document_splits:
         return
-
-    # Process the input artifact, which can be a file path or a list of document splits
-    document_splits = []
-
-    if isinstance(input_artifact, str) or hasattr(input_artifact, "path"):
-        # If it's a path string or has a path attribute (like KFP artifact)
-        path = input_artifact.path if hasattr(input_artifact, "path") else input_artifact
-        try:
-            with open(path) as input_file:
-                splits_artifact = input_file.read()
-                document_splits = json.loads(splits_artifact)
-        except Exception as e:
-            _log.error(f"Error reading input artifact: {str(e)}")
-            return
-    elif isinstance(input_artifact, list):
-        # If it's already a list of document splits
-        document_splits = input_artifact
-    else:
-        _log.error(f"Unsupported input_artifact type: {type(input_artifact)}")
-        return
-
-    # Get Elasticsearch credentials from environment variables
-    es_user = os.environ.get("ES_USER")
-    es_pass = os.environ.get("ES_PASS")
-    es_host = os.environ.get("ES_HOST")
-
-    _log.info("Environment variables for Elasticsearch:")
-    _log.info(f"ES_USER: {'SET' if es_user else 'NOT SET'}")
-    _log.info(f"ES_PASS: {'SET' if es_pass else 'NOT SET'}")
-    _log.info(f"ES_HOST: {'SET' if es_host else 'NOT SET'}")
-
-    if not es_user or not es_pass or not es_host:
-        _log.error(
-            "Elasticsearch config not present. Please set ES_USER, ES_PASS, and ES_HOST environment variables."
-        )
-        # Return error code instead of just returning
-        if __name__ != "__main__":  # Don't exit if imported as a module
-            return 1
-        else:
-            import sys
-
-            sys.exit(1)
 
     # Initialize Elasticsearch client
-    _log.info(f"Connecting to Elasticsearch at {es_host}")
-    try:
-        es_client = Elasticsearch(
-            es_host, basic_auth=(es_user, es_pass), request_timeout=30, verify_certs=False
-        )
-    except Exception as e:
-        _log.error(f"Failed to initialize Elasticsearch client: {str(e)}")
+    es_client, status = _init_elasticsearch_client()
+    if status != 0:
         return
 
-    # Health check for Elasticsearch client connection
+    # Initialize embeddings
     try:
-        health = es_client.cluster.health()
-        _log.info(f"Elasticsearch cluster status: {health['status']}")
+        embeddings = _init_embeddings()
     except Exception as e:
-        _log.error(f"Error connecting to Elasticsearch: {str(e)}")
+        _log.error(f"Failed to initialize embeddings: {str(e)}")
         return
 
-    # Process each index and its documents directly (like the working example)
+    # Process each index
     if isinstance(document_splits, list):
         for index_data in document_splits:
-            if isinstance(index_data, dict) and "index_name" in index_data and "splits" in index_data:
-                index_name = index_data["index_name"]
-                splits = index_data["splits"]
-                _log.info(f"Processing index {index_name} with {len(splits)} documents")
-
-                # Create document objects
-                documents = [
-                    Document(page_content=split["page_content"], metadata=split["metadata"])
-                    for split in splits
-                ]
-
-                # Initialize embedding model - using Nomic AI's embedding model
-                model_name = "nomic-ai/nomic-embed-text-v1"
-
-                # Set model parameters
-                try:
-                    device = "cuda" if os.environ.get("NVIDIA_VISIBLE_DEVICES") else "cpu"
-                    _log.info(f"Using device: {device} for embeddings")
-                    model_kwargs = {"trust_remote_code": True, "device": device}
-
-                    _log.info(f"Initializing embeddings model: {model_name}")
-                    embeddings = HuggingFaceEmbeddings(
-                        model_name=model_name,
-                        model_kwargs=model_kwargs,
-                        show_progress=True,
-                        encode_kwargs={"normalize_embeddings": True},
-                    )
-
-                    # Initialize Elasticsearch store with embeddings
-                    _log.info(f"Creating/updating index: {index_name}")
-                    db = ElasticsearchStore(
-                        index_name=index_name.lower(),
-                        embedding=embeddings,
-                        es_connection=es_client,
-                    )
-
-                    # Add documents in batches
-                    batch_size = 50
-                    total_batches = (len(documents) + batch_size - 1) // batch_size
-
-                    for i in range(0, len(documents), batch_size):
-                        batch = documents[i : i + batch_size]
-                        batch_num = (i // batch_size) + 1
-                        _log.info(f"Uploading batch {batch_num}/{total_batches} to index {index_name}")
-                        db.add_documents(batch)
-
-                    _log.info(f"Successfully uploaded all documents to index {index_name}")
-
-                except Exception as e:
-                    _log.error(f"Error ingesting documents: {str(e)}")
-                    import traceback
-
-                    traceback.print_exc()
-
+            _process_index(index_data, es_client, embeddings)
     elif isinstance(document_splits, dict):
-        # Handle the dictionary format
         for index_name, splits in document_splits.items():
-            _log.info(f"Processing index {index_name} with {len(splits)} documents")
-
-            # Create document objects
-            documents = [
-                Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits
-            ]
-
-            # Use the same embedding and processing logic as above
-            # (Code would be duplicated here - consider refactoring)
-            try:
-                device = "cuda" if os.environ.get("NVIDIA_VISIBLE_DEVICES") else "cpu"
-                _log.info(f"Using device: {device} for embeddings")
-                model_name = "nomic-ai/nomic-embed-text-v1"
-                model_kwargs = {"trust_remote_code": True, "device": device}
-
-                _log.info(f"Initializing embeddings model: {model_name}")
-                embeddings = HuggingFaceEmbeddings(
-                    model_name=model_name,
-                    model_kwargs=model_kwargs,
-                    show_progress=True,
-                    encode_kwargs={"normalize_embeddings": True},
-                )
-
-                # Initialize Elasticsearch store with embeddings
-                _log.info(f"Creating/updating index: {index_name}")
-                db = ElasticsearchStore(
-                    index_name=index_name.lower(),
-                    embedding=embeddings,
-                    es_connection=es_client,
-                )
-
-                # Add documents in batches
-                batch_size = 50
-                total_batches = (len(documents) + batch_size - 1) // batch_size
-
-                for i in range(0, len(documents), batch_size):
-                    batch = documents[i : i + batch_size]
-                    batch_num = (i // batch_size) + 1
-                    _log.info(f"Uploading batch {batch_num}/{total_batches} to index {index_name}")
-                    db.add_documents(batch)
-
-                _log.info(f"Successfully uploaded all documents to index {index_name}")
-
-            except Exception as e:
-                _log.error(f"Error ingesting documents: {str(e)}")
-                import traceback
-
-                traceback.print_exc()
+            _process_index({"index_name": index_name, "splits": splits}, es_client, embeddings)
 
     _log.info("Document ingestion complete!")
 
@@ -242,7 +198,7 @@ def prepare_documents_for_es(output_dir):
     for md_file in md_files:
         try:
             # Read markdown content
-            with open(md_file, "r", encoding="utf-8") as f:
+            with open(md_file, encoding="utf-8") as f:
                 content = f.read()
 
             # Extract title from first line (assumes markdown starts with # Title)

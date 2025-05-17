@@ -1,0 +1,685 @@
+kfp/opl-ingestor/__init__.py:1:1: N999 Invalid module name: 'opl-ingestor'
+kfp/opl-ingestor/kubeflow_components.py:259:18: F821 Undefined name `re`
+    |
+257 |         # Clean up consecutive blank lines
+258 |         result = "\n".join(markdown_output)
+259 |         result = re.sub(r"\n{3,}", "\n\n", result)
+    |                  ^^ F821
+260 |
+261 |         return result
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:273:24: S113 Probable use of `requests` call without timeout
+    |
+271 |         try:
+272 |             # Fetch URL content
+273 |             response = requests.get(source)
+    |                        ^^^^^^^^^^^^ S113
+274 |             html_content = response.text
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:505:121: E501 Line too long (135 > 120)
+    |
+503 | …
+504 | …
+505 | …tent format={type(document_splits[0]) if document_splits else 'empty'}"
+    |                                                          ^^^^^^^^^^^^^^^ E501
+506 | …
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:551:9: S106 Possible hardcoded password assigned to argument: "secret_name"
+    |
+549 |     kubernetes.use_secret_as_env(
+550 |         ingest_docs_task,
+551 |         secret_name="elasticsearch-es-elastic-user",
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ S106
+552 |         secret_key_to_env={"elastic": "ES_PASS"},
+553 |     )
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:570:5: N806 Variable `KUBEFLOW_ENDPOINT` in function should be lowercase
+    |
+568 |     """
+569 |     # Get Kubeflow endpoint and authentication token
+570 |     KUBEFLOW_ENDPOINT = os.environ.get("KUBEFLOW_ENDPOINT")
+    |     ^^^^^^^^^^^^^^^^^ N806
+571 |     _log.info(f"Connecting to kfp: {KUBEFLOW_ENDPOINT}")
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:574:21: S105 Possible hardcoded password assigned to: "sa_token_path"
+    |
+573 |     # Get service account token
+574 |     sa_token_path = "/run/secrets/kubernetes.io/serviceaccount/token"
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ S105
+575 |     if os.path.isfile(sa_token_path):
+576 |         with open(sa_token_path) as f:
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:577:13: N806 Variable `BEARER_TOKEN` in function should be lowercase
+    |
+575 |     if os.path.isfile(sa_token_path):
+576 |         with open(sa_token_path) as f:
+577 |             BEARER_TOKEN = f.read().rstrip()
+    |             ^^^^^^^^^^^^ N806
+578 |     else:
+579 |         BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:579:9: N806 Variable `BEARER_TOKEN` in function should be lowercase
+    |
+577 |             BEARER_TOKEN = f.read().rstrip()
+578 |     else:
+579 |         BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
+    |         ^^^^^^^^^^^^ N806
+580 |
+581 |     # Get service account certificate
+    |
+
+kfp/opl-ingestor/kubeflow_components.py:586:9: F841 Local variable `ssl_ca_cert` is assigned to but never used
+    |
+584 |         ssl_ca_cert = sa_ca_cert
+585 |     else:
+586 |         ssl_ca_cert = None
+    |         ^^^^^^^^^^^ F841
+587 |
+588 |     # Create KFP client and run pipeline
+    |
+    = help: Remove assignment to unused variable `ssl_ca_cert`
+
+kfp/opl-ingestor/main.py:74:5: N806 Variable `KUBEFLOW_ENDPOINT` in function should be lowercase
+   |
+72 |     _log.info("Running in pipeline mode")
+73 |
+74 |     KUBEFLOW_ENDPOINT = os.environ.get("KUBEFLOW_ENDPOINT")
+   |     ^^^^^^^^^^^^^^^^^ N806
+75 |     if not KUBEFLOW_ENDPOINT:
+76 |         _log.error("KUBEFLOW_ENDPOINT environment variable not set")
+   |
+
+kfp/opl-ingestor/markdown_processing.py:486:34: UP015 [*] Unnecessary mode argument
+    |
+484 |             file_path = Path(source) if isinstance(source, str) else source
+485 |
+486 |             with open(file_path, "r", encoding="utf-8") as f:
+    |                                  ^^^ UP015
+487 |                 html_content = f.read()
+    |
+    = help: Remove mode argument
+
+kfp/opl-ingestor/markdown_processing.py:492:24: S113 Probable use of `requests` call without timeout
+    |
+490 |         else:
+491 |             # Assume URL
+492 |             response = requests.get(source)
+    |                        ^^^^^^^^^^^^ S113
+493 |             html_content = response.text
+494 |             source_id = source
+    |
+
+kfp/opl-ingestor/run-pipeline.py:1:1: N999 Invalid module name: 'run-pipeline'
+kfp/opl-ingestor/run-pipeline.py:12:21: F401 [*] `pathlib.Path` imported but unused
+   |
+10 | import sys
+11 | import time
+12 | from pathlib import Path
+   |                     ^^^^ F401
+13 |
+14 | # Add the current directory to the Python path
+   |
+   = help: Remove unused import: `pathlib.Path`
+
+kfp/opl-ingestor/run-pipeline.py:20:1: E402 Module level import not at top of file
+   |
+19 | # Import the pipeline definition
+20 | from kubeflow_components import ingestion_pipeline
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E402
+21 |
+22 | # Import kfp modules
+   |
+
+kfp/opl-ingestor/run-pipeline.py:23:1: E402 Module level import not at top of file
+   |
+22 | # Import kfp modules
+23 | import kfp
+   | ^^^^^^^^^^ E402
+   |
+
+kfp/opl-ingestor/run-pipeline.py:29:5: N806 Variable `KUBEFLOW_ENDPOINT` in function should be lowercase
+   |
+27 |     """Run the OPL ingestion pipeline."""
+28 |     # Get Kubeflow endpoint
+29 |     KUBEFLOW_ENDPOINT = os.environ.get("KUBEFLOW_ENDPOINT")
+   |     ^^^^^^^^^^^^^^^^^ N806
+30 |     if not KUBEFLOW_ENDPOINT:
+31 |         print("KUBEFLOW_ENDPOINT environment variable not set.")
+   |
+
+kfp/opl-ingestor/run-pipeline.py:37:21: S105 Possible hardcoded password assigned to: "sa_token_path"
+   |
+36 |     # Get authentication token
+37 |     sa_token_path = "/run/secrets/kubernetes.io/serviceaccount/token"
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ S105
+38 |     if os.path.isfile(sa_token_path):
+39 |         with open(sa_token_path) as f:
+   |
+
+kfp/opl-ingestor/run-pipeline.py:40:13: N806 Variable `BEARER_TOKEN` in function should be lowercase
+   |
+38 |     if os.path.isfile(sa_token_path):
+39 |         with open(sa_token_path) as f:
+40 |             BEARER_TOKEN = f.read().rstrip()
+   |             ^^^^^^^^^^^^ N806
+41 |     else:
+42 |         BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
+   |
+
+kfp/opl-ingestor/run-pipeline.py:42:9: N806 Variable `BEARER_TOKEN` in function should be lowercase
+   |
+40 |             BEARER_TOKEN = f.read().rstrip()
+41 |     else:
+42 |         BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
+   |         ^^^^^^^^^^^^ N806
+43 |         if not BEARER_TOKEN:
+44 |             print("BEARER_TOKEN environment variable not set and service account token not found.")
+   |
+
+kfp/opl-ingestor/run-pipeline.py:49:5: F841 Local variable `ssl_ca_cert` is assigned to but never used
+   |
+47 |     # Get service account certificate
+48 |     sa_ca_cert = "/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+49 |     ssl_ca_cert = sa_ca_cert if os.path.isfile(sa_ca_cert) else None
+   |     ^^^^^^^^^^^ F841
+50 |
+51 |     # Create KFP client
+   |
+   = help: Remove assignment to unused variable `ssl_ca_cert`
+
+kfp/opl-ingestor/setup.py:5:1: I001 [*] Import block is un-sorted or un-formatted
+  |
+3 | """
+4 |
+5 | from setuptools import setup, find_packages
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ I001
+6 |
+7 | setup(
+  |
+  = help: Organize imports
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+  |
+1 | / import os
+2 | | from typing import List, NamedTuple
+3 | |
+4 | | from kfp.dsl import Artifact, Input, Output
+5 | |
+6 | | import kfp
+7 | | from kfp import dsl, kubernetes
+  | |_______________________________^ I001
+  |
+  = help: Organize imports
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:2:1: UP035 `typing.List` is deprecated, use `list` instead
+  |
+1 | import os
+2 | from typing import List, NamedTuple
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP035
+3 |
+4 | from kfp.dsl import Artifact, Input, Output
+  |
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:11:25: UP006 Use `list` instead of `List` for type annotation
+   |
+10 | @dsl.component()
+11 | def load_documents() -> List:
+   |                         ^^^^ UP006
+12 |     class Product(NamedTuple):
+13 |         product: str
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:57:33: UP006 Use `list` instead of `List` for type annotation
+   |
+55 |     ],
+56 | )
+57 | def format_documents(documents: List, splits_artifact: Output[Artifact]):
+   |                                 ^^^^ UP006
+58 |     import json
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:72:27: UP006 Use `list` instead of `List` for type annotation
+   |
+70 |         """Load `Red Hat Documentation` single-html webpages."""
+71 |
+72 |         def load(self) -> List[Document]:
+   |                           ^^^^ UP006
+73 |             """Load webpages as Documents."""
+74 |             soup = self.scrape()
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:168:50: UP006 Use `list` instead of `List` for type annotation
+    |
+166 |     print("Starting format_documents")
+167 |
+168 |     def get_pages(product, version, language) -> List:
+    |                                                  ^^^^ UP006
+169 |         """Get the list of pages from the Red Hat product documentation."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:195:80: UP006 Use `list` instead of `List` for type annotation
+    |
+193 |         return pages
+194 |
+195 |     def split_document(product, version, language, page, product_full_name) -> List:
+    |                                                                                ^^^^ UP006
+196 |         """Split a Red Hat documentation page into smaller sections."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:218:21: UP006 Use `list` instead of `List` for type annotation
+    |
+217 |         # Markdown split
+218 |         new_splits: List[Document] = []
+    |                     ^^^^ UP006
+219 |         for doc in md_docs:
+220 |             md_header_splits = markdown_splitter.split_text(doc.page_content)
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:249:75: UP006 Use `list` instead of `List` for type annotation
+    |
+247 |         return json_splits
+248 |
+249 |     def generate_splits(product, product_full_name, version, language) -> List:
+    |                                                                           ^^^^ UP006
+250 |         """Generate the splits for a Red Hat documentation product."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:269:17: UP006 Use `list` instead of `List` for type annotation
+    |
+267 |     class DocumentSplit(NamedTuple):
+268 |         index_name: str
+269 |         splits: List[str]
+    |                 ^^^^ UP006
+270 |
+271 |     document_splits = []
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-elastic.py:371:9: S106 Possible hardcoded password assigned to argument: "secret_name"
+    |
+369 |     kubernetes.use_secret_as_env(
+370 |         ingest_docs_task,
+371 |         secret_name="elasticsearch-es-elastic-user",
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ S106
+372 |         secret_key_to_env={"elastic": "ES_PASS"},
+373 |     )
+    |
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:3:1: UP035 `typing.List` is deprecated, use `list` instead
+  |
+1 | import json
+2 | import os
+3 | from typing import List, NamedTuple
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP035
+4 |
+5 | from bs4 import BeautifulSoup
+  |
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:18:25: UP006 Use `list` instead of `List` for type annotation
+   |
+18 | def load_documents() -> List:
+   |                         ^^^^ UP006
+19 |     Product = NamedTuple("Product", product=str, product_full_name=str, version=str, language=str)
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:19:5: UP014 Convert `Product` from `NamedTuple` functional to class syntax
+   |
+18 | def load_documents() -> List:
+19 |     Product = NamedTuple("Product", product=str, product_full_name=str, version=str, language=str)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP014
+20 |
+21 |     products = [
+   |
+   = help: Convert `Product` to class syntax
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:30:33: UP006 Use `list` instead of `List` for type annotation
+   |
+30 | def format_documents(documents: List, splits_artifact):
+   |                                 ^^^^ UP006
+31 |     class RedHatDocumentationLoader(WebBaseLoader):
+32 |         """Load `Red Hat Documentation` single-html webpages."""
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:34:27: UP006 Use `list` instead of `List` for type annotation
+   |
+32 |         """Load `Red Hat Documentation` single-html webpages."""
+33 |
+34 |         def load(self) -> List[Document]:
+   |                           ^^^^ UP006
+35 |             """Load webpages as Documents."""
+36 |             soup = self.scrape()
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:130:50: UP006 Use `list` instead of `List` for type annotation
+    |
+128 |     print("Starting format_documents")
+129 |
+130 |     def get_pages(product, version, language) -> List:
+    |                                                  ^^^^ UP006
+131 |         """Get the list of pages from the Red Hat product documentation."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:157:80: UP006 Use `list` instead of `List` for type annotation
+    |
+155 |         return pages
+156 |
+157 |     def split_document(product, version, language, page, product_full_name) -> List:
+    |                                                                                ^^^^ UP006
+158 |         """Split a Red Hat documentation page into smaller sections."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:178:21: UP006 Use `list` instead of `List` for type annotation
+    |
+177 |         # Markdown split
+178 |         new_splits: List[Document] = []
+    |                     ^^^^ UP006
+179 |         for doc in md_docs:
+180 |             md_header_splits = markdown_splitter.split_text(doc.page_content)
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:209:75: UP006 Use `list` instead of `List` for type annotation
+    |
+207 |         return json_splits
+208 |
+209 |     def generate_splits(product, product_full_name, version, language) -> List:
+    |                                                                           ^^^^ UP006
+210 |         """Generate the splits for a Red Hat documentation product."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:227:5: UP014 Convert `DocumentSplit` from `NamedTuple` functional to class syntax
+    |
+225 |         return all_splits
+226 |
+227 |     DocumentSplit = NamedTuple("DocumentSplit", index_name=str, splits=List[str])
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP014
+228 |     document_splits = []
+229 |     for doc in documents:
+    |
+    = help: Convert `DocumentSplit` to class syntax
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:227:72: UP006 Use `list` instead of `List` for type annotation
+    |
+225 |         return all_splits
+226 |
+227 |     DocumentSplit = NamedTuple("DocumentSplit", index_name=str, splits=List[str])
+    |                                                                        ^^^^ UP006
+228 |     document_splits = []
+229 |     for doc in documents:
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline-local.py:243:38: UP006 Use `list` instead of `List` for type annotation
+    |
+243 | def ingest_documents(input_artifact: List):
+    |                                      ^^^^ UP006
+244 |     # Reading artifact from previous step into variable
+245 |     document_splits = []
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:2:1: UP035 `typing.List` is deprecated, use `list` instead
+  |
+1 | import os
+2 | from typing import List, NamedTuple
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP035
+3 |
+4 | import kfp
+  |
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:10:25: UP006 Use `list` instead of `List` for type annotation
+   |
+ 9 | @dsl.component()
+10 | def load_documents() -> List:
+   |                         ^^^^ UP006
+11 |
+12 |     class Product(NamedTuple):
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:55:33: UP006 Use `list` instead of `List` for type annotation
+   |
+53 |     ],
+54 | )
+55 | def format_documents(documents: List, splits_artifact: Output[Artifact]):
+   |                                 ^^^^ UP006
+56 |     import json
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:70:27: UP006 Use `list` instead of `List` for type annotation
+   |
+68 |         """Load `Red Hat Documentation` single-html webpages."""
+69 |
+70 |         def load(self) -> List[Document]:
+   |                           ^^^^ UP006
+71 |             """Load webpages as Documents."""
+72 |             soup = self.scrape()
+   |
+   = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:166:50: UP006 Use `list` instead of `List` for type annotation
+    |
+164 |     print("Starting format_documents")
+165 |
+166 |     def get_pages(product, version, language) -> List:
+    |                                                  ^^^^ UP006
+167 |         """Get the list of pages from the Red Hat product documentation."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:193:80: UP006 Use `list` instead of `List` for type annotation
+    |
+191 |         return pages
+192 |
+193 |     def split_document(product, version, language, page, product_full_name) -> List:
+    |                                                                                ^^^^ UP006
+194 |         """Split a Red Hat documentation page into smaller sections."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:214:21: UP006 Use `list` instead of `List` for type annotation
+    |
+213 |         # Markdown split
+214 |         new_splits: List[Document] = []
+    |                     ^^^^ UP006
+215 |         for doc in md_docs:
+216 |             md_header_splits = markdown_splitter.split_text(doc.page_content)
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:245:75: UP006 Use `list` instead of `List` for type annotation
+    |
+243 |         return json_splits
+244 |
+245 |     def generate_splits(product, product_full_name, version, language) -> List:
+    |                                                                           ^^^^ UP006
+246 |         """Generate the splits for a Red Hat documentation product."""
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:265:17: UP006 Use `list` instead of `List` for type annotation
+    |
+263 |     class DocumentSplit(NamedTuple):
+264 |         index_name: str
+265 |         splits: List[str]
+    |                 ^^^^ UP006
+266 |
+267 |     document_splits = []
+    |
+    = help: Replace with `list`
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:375:121: E501 Line too long (123 > 120)
+    |
+374 |     kubernetes.add_toleration(format_docs_task, key="nvidia.com/gpu", operator="Exists", effect="NoSchedule")
+375 |     kubernetes.add_toleration(format_docs_task, key="nvidia.com/gpu", operator="Exists", effect="NoSchedule", value="True")
+    |                                                                                                                         ^^^ E501
+376 |
+377 |     kubernetes.add_toleration(ingest_docs_task, key="nvidia.com/gpu", operator="Exists", effect="NoSchedule")
+    |
+
+kfp/redhat-product-documentation-ingestor/ingestion-pipeline.py:378:121: E501 Line too long (123 > 120)
+    |
+377 |     kubernetes.add_toleration(ingest_docs_task, key="nvidia.com/gpu", operator="Exists", effect="NoSchedule")
+378 |     kubernetes.add_toleration(ingest_docs_task, key="nvidia.com/gpu", operator="Exists", effect="NoSchedule", value="True")
+    |                                                                                                                         ^^^ E501
+    |
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 | / import weaviate
+ 2 | | import os
+ 3 | | from langchain_community.llms import VLLMOpenAI
+ 4 | | from langchain_community.embeddings import HuggingFaceEmbeddings
+ 5 | |
+ 6 | |
+ 7 | |
+ 8 | | # Set up logging
+ 9 | | import logging
+   | |______________^ I001
+10 |   logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+11 |   logger = logging.getLogger(__name__)
+   |
+   = help: Organize imports
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:100:21: F541 [*] f-string without any placeholders
+    |
+ 98 |     try:
+ 99 |         
+100 |         logger.info(f"Start Raw query")
+    |                     ^^^^^^^^^^^^^^^^^^ F541
+101 |         # Query for the count of records in the specific index (class)
+102 |         result = client.query.get(index_name, ["title"]).do()
+    |
+    = help: Remove extraneous `f` prefix
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:140:121: E501 Line too long (128 > 120)
+    |
+139 | def get_embedding_model():
+140 |     embedding_model = HuggingFaceEmbeddings(model_name="nomic-ai/nomic-embed-text-v1", model_kwargs={"trust_remote_code": True})
+    |                                                                                                                         ^^^^^^^^ E501
+141 |     return embedding_model
+    |
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:180:5: N806 Variable `API_URL` in function should be lowercase
+    |
+178 | def rag_query(query):
+179 |     # Initialize the LLM model
+180 |     API_URL = os.getenv("API_URL")
+    |     ^^^^^^^ N806
+181 |     API_KEY = os.getenv("API_KEY")
+    |
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:181:5: N806 Variable `API_KEY` in function should be lowercase
+    |
+179 |     # Initialize the LLM model
+180 |     API_URL = os.getenv("API_URL")
+181 |     API_KEY = os.getenv("API_KEY")
+    |     ^^^^^^^ N806
+182 |
+183 |     llm = VLLMOpenAI(
+    |
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:234:5: I001 [*] Import block is un-sorted or un-formatted
+    |
+232 |   # Function to scrape and convert website content to Markdown
+233 |   def scrape_website(url: str):
+234 | /     import requests
+235 | |     import logging        
+236 | |     from bs4 import BeautifulSoup
+    | |_________________________________^ I001
+237 |       
+238 |       # Set up logging
+    |
+    = help: Organize imports
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:244:20: S113 Probable use of `requests` call without timeout
+    |
+242 |     logger.info(f"Starting scraping and conversion for URL: {url}")
+243 |     try:
+244 |         response = requests.get(url)
+    |                    ^^^^^^^^^^^^ S113
+245 |         response.raise_for_status()
+246 |     except requests.exceptions.RequestException as e:
+    |
+
+kfp/website-ingestor/ingestion-pipeline-website-local.py:264:5: I001 [*] Import block is un-sorted or un-formatted
+    |
+263 |   def process_and_store(html_artifact: str, url: str, index_name: str):
+264 | /     import weaviate
+265 | |     import os
+266 | |     import logging
+267 | |     from langchain_community.embeddings import HuggingFaceEmbeddings
+268 | |     from langchain_core.documents import Document
+269 | |     from langchain_community.document_transformers import Html2TextTransformer
+270 | |     from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+271 | |     from langchain_community.vectorstores import Weaviate
+    | |_________________________________________________________^ I001
+272 |
+273 |       # Set up logging
+    |
+    = help: Organize imports
+
+kfp/website-ingestor/website-ingestion-pipeline.py:22:5: I001 [*] Import block is un-sorted or un-formatted
+   |
+20 |   )
+21 |   def scrape_website(url: str, html_artifact: Output[Artifact]):
+22 | /     import logging
+23 | |     import requests
+24 | |     from bs4 import BeautifulSoup
+   | |_________________________________^ I001
+25 |       
+26 |       # Set up logging
+   |
+   = help: Organize imports
+
+kfp/website-ingestor/website-ingestion-pipeline.py:65:5: I001 [*] Import block is un-sorted or un-formatted
+   |
+63 |   )
+64 |   def process_and_store(input_artifact: Input[Artifact], url: str, index_name: str):
+65 | /     import logging
+66 | |     import os
+67 | |     from elasticsearch import Elasticsearch
+68 | |     from langchain_community.document_transformers import Html2TextTransformer
+69 | |     from langchain_community.embeddings import HuggingFaceEmbeddings
+70 | |     from langchain_core.documents import Document
+71 | |     from langchain_elasticsearch import ElasticsearchStore
+72 | |     from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+   | |___________________________________________________________________________________________________^ I001
+73 |
+74 |       # Set up logging
+   |
+   = help: Organize imports
+
+kfp/website-ingestor/website-ingestion-pipeline.py:246:9: S106 Possible hardcoded password assigned to argument: "secret_name"
+    |
+244 |     kubernetes.use_secret_as_env(
+245 |         process_and_store_task,
+246 |         secret_name="elasticsearch-es-elastic-user",
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ S106
+247 |         secret_key_to_env={"elastic": "ES_PASS"},
+248 |     )
+    |
+
+Found 68 errors.
+[*] 10 fixable with the `--fix` option (27 hidden fixes can be enabled with the `--unsafe-fixes` option).

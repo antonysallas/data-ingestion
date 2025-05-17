@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: N999
 """
 Script to run the OPL ingestion pipeline directly in OpenShift.
 
@@ -9,50 +10,46 @@ to ensure proper execution in the OpenShift environment.
 import os
 import sys
 import time
-from pathlib import Path
+
+# Third-party imports
+import kfp
+
+# Local imports
+from .kubeflow_components import ingestion_pipeline  # ruff: noqa: E402
 
 # Add the current directory to the Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Import the pipeline definition
-from kubeflow_components import ingestion_pipeline
-
-# Import kfp modules
-import kfp
-
 
 def main():
     """Run the OPL ingestion pipeline."""
     # Get Kubeflow endpoint
-    KUBEFLOW_ENDPOINT = os.environ.get("KUBEFLOW_ENDPOINT")
-    if not KUBEFLOW_ENDPOINT:
+    kubeflow_endpoint = os.environ.get("KUBEFLOW_ENDPOINT")
+    if not kubeflow_endpoint:
         print("KUBEFLOW_ENDPOINT environment variable not set.")
         return 1
 
-    print(f"Connecting to Kubeflow at: {KUBEFLOW_ENDPOINT}")
+    print(f"Connecting to Kubeflow at: {kubeflow_endpoint}")
 
     # Get authentication token
+    # ruff: noqa: S105
     sa_token_path = "/run/secrets/kubernetes.io/serviceaccount/token"
     if os.path.isfile(sa_token_path):
         with open(sa_token_path) as f:
-            BEARER_TOKEN = f.read().rstrip()
+            bearer_token = f.read().rstrip()
     else:
-        BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
-        if not BEARER_TOKEN:
+        bearer_token = os.environ.get("BEARER_TOKEN")
+        if not bearer_token:
             print("BEARER_TOKEN environment variable not set and service account token not found.")
             return 1
 
-    # Get service account certificate
-    sa_ca_cert = "/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
-    ssl_ca_cert = sa_ca_cert if os.path.isfile(sa_ca_cert) else None
-
     # Create KFP client
     client = kfp.Client(
-        host=KUBEFLOW_ENDPOINT,
-        existing_token=BEARER_TOKEN,
-        ssl_ca_cert=None,  # Using None here as we don't always need certificate verification
+        host=kubeflow_endpoint,
+        existing_token=bearer_token,
+        ssl_ca_cert=None,  # Using None directly instead of variable
     )
 
     # Create and run the pipeline
@@ -66,7 +63,7 @@ def main():
     )
 
     print(f"Pipeline run created: {result.run_id}")
-    print(f"You can view this run in the Kubeflow Pipelines UI at: {KUBEFLOW_ENDPOINT}")
+    print(f"You can view this run in the Kubeflow Pipelines UI at: {kubeflow_endpoint}")
 
     return 0
 

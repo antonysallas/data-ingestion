@@ -19,6 +19,72 @@ _log = logging.getLogger(__name__)
 HTML_PARSER = "html.parser"
 
 
+def _load_markdown_processing():
+    """Load markdown processing functions, handling different import scenarios."""
+    try:
+        from .markdown_processing import (
+            clean_markdown,
+            clean_text,
+            convert_html_to_markdown,
+        )
+
+        return clean_markdown, clean_text, convert_html_to_markdown
+    except ImportError:
+        try:
+            from .markdown_processing import (
+                clean_markdown,
+                clean_text,
+                convert_html_to_markdown,
+            )
+
+            return clean_markdown, clean_text, convert_html_to_markdown
+        except ImportError:
+            import sys
+            from pathlib import Path
+
+            current_dir = Path(__file__).parent
+            if str(current_dir) not in sys.path:
+                sys.path.append(str(current_dir))
+            markdown_module = importlib.import_module("markdown_processing")
+            return (
+                markdown_module.clean_markdown,
+                markdown_module.clean_text,
+                markdown_module.convert_html_to_markdown,
+            )
+
+
+def _extract_title_subtitle(soup, clean_text):
+    """Extract title and subtitle from soup."""
+    title_elem = soup.select_one('[data-testid="title"]')
+    subtitle_elem = soup.select_one('[data-testid="subtitle"]')
+
+    if not title_elem or not subtitle_elem:
+        _log.warning("Could not find title or subtitle elements")
+        return "Unknown Title", "Unknown Subtitle"
+
+    return clean_text(title_elem.text.strip()), clean_text(subtitle_elem.text.strip())
+
+
+def _find_main_container(soup):
+    """Find the main content container in the soup."""
+    for container in soup.select(".MuiContainer-root.MuiContainer-maxWidthMd"):
+        box = container.select_one(".MuiBox-root")
+        if box and box.select("h4.MuiTypography-h4"):
+            return box
+    _log.error("Could not find main content container")
+    return None
+
+
+def _process_section_content(content_divs, convert_html_to_markdown, clean_markdown):
+    """Process a section's content divs into cleaned markdown."""
+    section_html = "".join(str(div) for div in content_divs)
+    section_html = f"<div>{section_html}</div>"
+    section_content = convert_html_to_markdown(section_html)
+    section_content = clean_markdown(section_content)
+    section_content = re.sub(r"#+\s*\n+", "", section_content)
+    return section_content.strip()
+
+
 def extract_opl_content(html_content):
     """
     Extract the relevant practice content from Open Practice Library HTML.
@@ -30,108 +96,33 @@ def extract_opl_content(html_content):
     Returns:
         dict: Dictionary containing title, subtitle, and sections with their content
     """
-    # Import functions from markdown_processing, handling both package and direct imports
-    try:
-        # Try package import first
-        from opl_ingestor.markdown_processing import (
-            clean_markdown,
-            clean_text,
-            convert_html_to_markdown,
-        )
-    except ImportError:
-        # Fall back to direct import
-        try:
-            from markdown_processing import (
-                clean_markdown,
-                clean_text,
-                convert_html_to_markdown,
-            )
-        except ImportError:
-            # If both fail, try to load the module dynamically
-            import sys
-            from pathlib import Path
-
-            # Add current directory to path if needed
-            current_dir = Path(__file__).parent
-            if str(current_dir) not in sys.path:
-                sys.path.append(str(current_dir))
-
-            markdown_module = importlib.import_module("markdown_processing")
-            clean_text = markdown_module.clean_text
-            clean_markdown = markdown_module.clean_markdown
-            convert_html_to_markdown = markdown_module.convert_html_to_markdown
-
+    clean_markdown, clean_text, convert_html_to_markdown = _load_markdown_processing()
     soup = BeautifulSoup(html_content, HTML_PARSER)
 
-    # Extract title and subtitle
-    title_elem = soup.select_one('[data-testid="title"]')
-    subtitle_elem = soup.select_one('[data-testid="subtitle"]')
-
-    if not title_elem or not subtitle_elem:
-        _log.warning("Could not find title or subtitle elements")
-        title = "Unknown Title"
-        subtitle = "Unknown Subtitle"
-    else:
-        title = clean_text(title_elem.text.strip())
-        subtitle = clean_text(subtitle_elem.text.strip())
-
+    title, subtitle = _extract_title_subtitle(soup, clean_text)
     result = {"title": title, "subtitle": subtitle, "sections": {}}
 
-    # Find the main content container
-    main_container = None
-    for container in soup.select(".MuiContainer-root.MuiContainer-maxWidthMd"):
-        box = container.select_one(".MuiBox-root")
-        if box and box.select("h4.MuiTypography-h4"):
-            main_container = box
-            break
-
+    main_container = _find_main_container(soup)
     if not main_container:
-        _log.error("Could not find main content container")
         return result
 
-    # Use document flow to collect sections and their content
     current_heading = None
     section_elements = {}
 
     for element in main_container.children:
-        if not hasattr(element, "name"):  # Skip non-tag elements like NavigableString
+        if not hasattr(element, "name"):
             continue
 
         if element.name == "h4" and "MuiTypography-h4" in element.get("class", []):
-            # Save the heading as a new section
             current_heading = clean_text(element.get_text(strip=True))
             section_elements[current_heading] = []
-
         elif current_heading and element.name == "div" and "MuiTypography-body1" in element.get("class", []):
-            # Save this content div as part of the current section
             section_elements[current_heading].append(element)
 
-    # Now process each section's content
     for heading, content_divs in section_elements.items():
-        if len(content_divs) == 0:
+        if not content_divs:
             continue
-
-        # Combine all content divs for this section
-        section_html = ""
-        for div in content_divs:
-            section_html += str(div)
-
-        # Wrap in a div for proper parsing
-        section_html = f"<div>{section_html}</div>"
-
-        # Convert to markdown with proper formatting
-        section_content = convert_html_to_markdown(section_html)
-
-        # Clean and normalize the markdown
-        section_content = clean_markdown(section_content)
-
-        # Remove any empty headings that might have been added
-        section_content = re.sub(r"#+\s*\n+", "", section_content)
-
-        # Remove any leading/trailing whitespace
-        section_content = section_content.strip()
-
-        result["sections"][heading] = section_content
+        result["sections"][heading] = _process_section_content(content_divs, convert_html_to_markdown, clean_markdown)
 
     return result
 
@@ -151,7 +142,7 @@ def get_all_practice_urls(homepage_url="https://openpracticelibrary.com/"):
     # Import here to avoid circular imports
     import requests
 
-    response = requests.get(homepage_url)
+    response = requests.get(homepage_url, timeout=30)
     soup = BeautifulSoup(response.text, HTML_PARSER)
 
     # Find all practice card links

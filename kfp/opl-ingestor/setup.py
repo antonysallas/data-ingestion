@@ -2,7 +2,7 @@
 Setup script for the opl_ingestor package.
 """
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="opl_ingestor",

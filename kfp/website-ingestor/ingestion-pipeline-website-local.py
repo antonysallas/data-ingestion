@@ -1,12 +1,11 @@
-import weaviate
-import os
-from langchain_community.llms import VLLMOpenAI
-from langchain_community.embeddings import HuggingFaceEmbeddings
-
-
-
 # Set up logging
 import logging
+import os
+
+import weaviate
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.llms import VLLMOpenAI
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -97,7 +96,7 @@ def get_record_count(index_name):
 
     try:
         
-        logger.info(f"Start Raw query")
+        logger.info("Start Raw query")
         # Query for the count of records in the specific index (class)
         result = client.query.get(index_name, ["title"]).do()
 
@@ -137,7 +136,9 @@ def delete_index(index_name):
 
 
 def get_embedding_model():
-    embedding_model = HuggingFaceEmbeddings(model_name="nomic-ai/nomic-embed-text-v1", model_kwargs={"trust_remote_code": True})
+    model_name = "nomic-ai/nomic-embed-text-v1"
+    model_kwargs = {"trust_remote_code": True}
+    embedding_model = HuggingFaceEmbeddings(model_name=model_name, model_kwargs=model_kwargs)
     return embedding_model
 
 def search_weaviate_query(index_name, query):
@@ -177,12 +178,12 @@ def search_weaviate(query):
 
 def rag_query(query):
     # Initialize the LLM model
-    API_URL = os.getenv("API_URL")
-    API_KEY = os.getenv("API_KEY")
+    api_url = os.getenv("API_URL")
+    api_key = os.getenv("API_KEY")
 
     llm = VLLMOpenAI(
-        openai_api_key=API_KEY,
-        openai_api_base=API_URL + "/v1",
+        openai_api_key=api_key,
+        openai_api_base=api_url + "/v1",
         model_name="granite-8b-code-instruct-128k",
         model_kwargs={"stop": ["."]},
     )
@@ -231,8 +232,9 @@ def get_sample_records(index_name, limit=10):
 
 # Function to scrape and convert website content to Markdown
 def scrape_website(url: str):
+    import logging
+
     import requests
-    import logging        
     from bs4 import BeautifulSoup
     
     # Set up logging
@@ -241,7 +243,7 @@ def scrape_website(url: str):
     """Scrape and convert the website's HTML to Markdown, split into chunks."""
     logger.info(f"Starting scraping and conversion for URL: {url}")
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching the URL {url}: {e}")
@@ -261,14 +263,15 @@ def scrape_website(url: str):
     return str(main_content)
 
 def process_and_store(html_artifact: str, url: str, index_name: str):
-    import weaviate
-    import os
     import logging
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-    from langchain_core.documents import Document
+    import os
+
+    import weaviate
     from langchain_community.document_transformers import Html2TextTransformer
-    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+    from langchain_community.embeddings import HuggingFaceEmbeddings
     from langchain_community.vectorstores import Weaviate
+    from langchain_core.documents import Document
+    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
     # Set up logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -399,7 +402,9 @@ def process_and_store(html_artifact: str, url: str, index_name: str):
         return
 
     # Prepare the data for ingestion
-    document_splits = [(index_name, [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in scraped_data])]
+    # Create document objects from scraped data
+    documents = [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in scraped_data]
+    document_splits = [(index_name, documents)]
 
     # Ingest data in batches to Weaviate
     for index_name, splits in document_splits:

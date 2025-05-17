@@ -1,5 +1,4 @@
 import os
-from typing import List, NamedTuple
 
 import kfp
 from kfp import dsl, kubernetes
@@ -20,8 +19,9 @@ from kfp.dsl import Artifact, Input, Output
     ],
 )
 def scrape_website(url: str, html_artifact: Output[Artifact]):
+    import logging
+
     import requests
-    import logging        
     from bs4 import BeautifulSoup
     
     # Set up logging
@@ -30,7 +30,7 @@ def scrape_website(url: str, html_artifact: Output[Artifact]):
     """Scrape and convert the website's HTML to Markdown, split into chunks."""
     logger.info(f"Starting scraping and conversion for URL: {url}")
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching the URL {url}: {e}")
@@ -63,14 +63,15 @@ def scrape_website(url: str, html_artifact: Output[Artifact]):
     ],
 )
 def process_and_store(input_artifact: Input[Artifact], url: str, index_name: str):
-    from elasticsearch import Elasticsearch
-    import os
     import logging
+    import os
+
+    from elasticsearch import Elasticsearch
+    from langchain_community.document_transformers import Html2TextTransformer
     from langchain_community.embeddings import HuggingFaceEmbeddings
     from langchain_core.documents import Document
-    from langchain_community.document_transformers import Html2TextTransformer
-    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
     from langchain_elasticsearch import ElasticsearchStore
+    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
     # Set up logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -191,7 +192,7 @@ def process_and_store(input_artifact: Input[Artifact], url: str, index_name: str
                 embedding=embeddings,
                 es_connection=es_client,
             )
-            logger.info(f"Insert data into DB")
+            logger.info("Insert data into DB")
             db.add_documents(splits)
             logger.info(f"Successfully uploaded documents to {index_name}")
         except Exception as e:
@@ -218,7 +219,9 @@ def process_and_store(input_artifact: Input[Artifact], url: str, index_name: str
         return
 
     # Prepare the data for ingestion
-    document_splits = [(index_name, [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in scraped_data])]
+    # Create document objects from scraped data
+    documents = [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in scraped_data]
+    document_splits = [(index_name, documents)]
 
     # Ingest data in batches to Weaviate
     for index_name, splits in document_splits:
@@ -231,7 +234,11 @@ def process_and_store(input_artifact: Input[Artifact], url: str, index_name: str
 def website_ingestion_pipeline(url: str, index_name: str):
     #url = "https://www.redhat.com/en/topics/containers/red-hat-openshift-okd"
     scrape_website_task=scrape_website(url=url)
-    process_and_store_task=process_and_store(url=url,index_name=index_name, input_artifact=scrape_website_task.outputs["html_artifact"])
+    process_and_store_task=process_and_store(
+        url=url,
+        index_name=index_name,
+        input_artifact=scrape_website_task.outputs["html_artifact"]
+    )
 
     process_and_store_task.set_accelerator_type("nvidia.com/gpu").set_accelerator_limit("1")
     kubernetes.add_toleration(process_and_store_task, key="nvidia.com/gpu", operator="Exists", effect="NoSchedule")

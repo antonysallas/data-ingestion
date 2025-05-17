@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 
 # Configure logging
@@ -32,6 +33,9 @@ logging.basicConfig(
 )
 
 _log = logging.getLogger(__name__)
+
+# Constants
+ENV_NOT_SET = "NOT SET"
 
 
 def parse_args():
@@ -71,33 +75,81 @@ def run_pipeline_mode():
     """Run in Kubeflow Pipeline mode."""
     _log.info("Running in pipeline mode")
 
-    KUBEFLOW_ENDPOINT = os.environ.get("KUBEFLOW_ENDPOINT")
-    if not KUBEFLOW_ENDPOINT:
+    kubeflow_endpoint = os.environ.get("KUBEFLOW_ENDPOINT")
+    if not kubeflow_endpoint:
         _log.error("KUBEFLOW_ENDPOINT environment variable not set")
         return 1
 
-    _log.info(f"Connecting to kfp: {KUBEFLOW_ENDPOINT}")
+    _log.info(f"Connecting to kfp: {kubeflow_endpoint}")
 
     # Import dynamically to handle import errors gracefully
     try:
         # Try to import from package first
         try:
-            from opl_ingestor.kubeflow_components import run_kubeflow_pipeline
+            from .kubeflow_components import run_kubeflow_pipeline
         except ImportError:
             # If that fails, try importing directly
-            import kubeflow_components
-
-            run_kubeflow_pipeline = kubeflow_components.run_kubeflow_pipeline
+            from .kubeflow_components import run_kubeflow_pipeline
 
         run_id = run_kubeflow_pipeline()
         _log.info(f"Pipeline run created: {run_id}")
         return 0
     except Exception as e:
         _log.error(f"Error running pipeline: {str(e)}")
-        import traceback
-
         _log.debug(traceback.format_exc())
         return 1
+
+
+def _ingest_to_elasticsearch(output_dir, args, logger):
+    """Handle Elasticsearch ingestion process."""
+    logger.info("Elasticsearch ingestion is enabled")
+    try:
+        from .elasticsearch_ingest import ingest_to_elasticsearch, prepare_documents_for_es
+
+        logger.info("Preparing to ingest documents into Elasticsearch")
+        es_user = args.es_user or os.environ.get("ES_USER", "elastic")
+        es_pass = args.es_pass or os.environ.get("ES_PASS")
+        es_host = args.es_host or os.environ.get("ES_HOST", "http://elasticsearch-es-http:9200")
+
+        logger.info("ES_USER is %s", "set" if es_user else ENV_NOT_SET)
+        logger.info("ES_PASS is %s", "set" if es_pass else ENV_NOT_SET)
+        logger.info("ES_HOST is %s", "set" if es_host else ENV_NOT_SET)
+
+        if not es_pass:
+            logger.error("ES_PASS not set. Exiting without ingesting to Elasticsearch.")
+            return 1
+
+        os.environ.update({"ES_USER": es_user, "ES_PASS": es_pass, "ES_HOST": es_host})
+        document_splits = prepare_documents_for_es(output_dir)
+
+        if document_splits:
+            logger.info("Ingesting processed documents into Elasticsearch...")
+            ingest_to_elasticsearch(document_splits)
+            logger.info("Successfully ingested documents into Elasticsearch.")
+        else:
+            logger.error("No documents prepared for ingestion. Skipping Elasticsearch ingestion.")
+        return 0
+    except ImportError:
+        logger.warning("Elasticsearch module could not be imported. Skipping Elasticsearch ingestion.")
+        return 0
+    except Exception as e:
+        logger.error(f"Error during Elasticsearch ingestion: {str(e)}")
+        logger.debug(traceback.format_exc())
+        return 1
+
+
+def _process_practices(practice_urls, output_dir, delay, logger, process_func):
+    """Process a list of practice URLs and save them to the output directory."""
+    successful = failed = 0
+    for i, url in enumerate(practice_urls):
+        logger.info(f"Processing practice {i + 1}/{len(practice_urls)}: {url}")
+        if process_func(url, output_dir):
+            successful += 1
+        else:
+            failed += 1
+        if i < len(practice_urls) - 1:
+            time.sleep(delay)
+    return successful, failed
 
 
 def run_standalone_mode(args):
@@ -167,100 +219,31 @@ def run_standalone_mode(args):
 
         _log.info(f"Found {len(practice_urls)} practices to process")
 
-        # Process each practice
-        successful = 0
-        failed = 0
-
-        for i, url in enumerate(practice_urls):
-            _log.info(f"Processing practice {i+1}/{len(practice_urls)}: {url}")
-
-            if process_practice(url, output_dir):
-                successful += 1
-            else:
-                failed += 1
-
-            # Add a delay to avoid overloading the server
-            if i < len(practice_urls) - 1:  # Don't delay after the last request
-                time.sleep(request_delay)
-
-        _log.info(
-            f"Website processing complete. Successfully processed {successful} practices. Failed: {failed}"
-        )
+        # Process practices
+        successful, failed = _process_practices(practice_urls, output_dir, request_delay, _log, process_practice)
+        _log.info(f"Website processing complete. Successfully processed {successful} practices. Failed: {failed}")
         _log.info(f"Markdown files saved to {output_dir.absolute()}")
 
-        # Ingest documents into Elasticsearch by default unless skip_es is provided
+        # Handle Elasticsearch ingestion
         if not skip_es:
-            _log.info("Elasticsearch ingestion is enabled")
-
-            # Import Elasticsearch module only if needed
-            try:
-                es_module = import_module("elasticsearch_ingest", "elasticsearch_ingest.py")
-                prepare_documents_for_es = es_module.prepare_documents_for_es
-                ingest_to_elasticsearch = es_module.ingest_to_elasticsearch
-
-                _log.info("Preparing to ingest documents into Elasticsearch")
-
-                # Get Elasticsearch credentials from environment variables or command line arguments
-                es_user = args.es_user or os.environ.get("ES_USER")
-                es_pass = args.es_pass or os.environ.get("ES_PASS")
-                es_host = args.es_host or os.environ.get("ES_HOST")
-
-                # Try to use defaults if not specified
-                if not es_user:
-                    es_user = "elastic"
-                    _log.info("ES_USER not specified, using default value 'elastic'")
-
-                if not es_host:
-                    es_host = "http://elasticsearch-es-http:9200"
-                    _log.info(f"ES_HOST not specified, using default value '{es_host}'")
-
-                # Log which variables are set (without revealing values)
-                _log.info("ES_USER is %s", "set" if es_user else "NOT SET")
-                _log.info("ES_PASS is %s", "set" if es_pass else "NOT SET")
-                _log.info("ES_HOST is %s", "set" if es_host else "NOT SET")
-
-                if not es_user or not es_pass or not es_host:
-                    _log.error(
-                        "Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables "
-                        "or provide them via command line arguments."
-                    )
-                    _log.error("Exiting without ingesting to Elasticsearch.")
-                    return 1
-
-                # Set environment variables for the current process
-                os.environ["ES_USER"] = es_user
-                os.environ["ES_PASS"] = es_pass
-                os.environ["ES_HOST"] = es_host
-
-                try:
-                    # Prepare documents for Elasticsearch
-                    document_splits = prepare_documents_for_es(output_dir)
-                    if document_splits:
-                        # Ingest into Elasticsearch
-                        _log.info("Ingesting processed documents into Elasticsearch...")
-                        ingest_to_elasticsearch(document_splits)
-                        _log.info("Successfully ingested documents into Elasticsearch.")
-                    else:
-                        _log.error("No documents prepared for ingestion. Skipping Elasticsearch ingestion.")
-                except Exception as e:
-                    _log.error(f"Error during Elasticsearch ingestion: {str(e)}")
-                    import traceback
-
-                    _log.debug(traceback.format_exc())
-                    return 1
-            except ImportError:
-                _log.warning("Elasticsearch module could not be imported. Skipping Elasticsearch ingestion.")
+            return _ingest_to_elasticsearch(output_dir, args, _log)
         else:
             _log.info("Elasticsearch ingestion is disabled with --skip-es flag")
-
-        return 0
+            return 0
 
     except Exception as e:
         _log.error(f"Error in standalone execution: {str(e)}")
-        import traceback
-
         _log.debug(traceback.format_exc())
         return 1
+
+
+def _get_mode_reason(args):
+    """Get the reason for running in local mode."""
+    if args.local:
+        return "--local flag specified"
+    if args.skip_es:
+        return "--skip-es flag specified"
+    return "KUBEFLOW_ENDPOINT not set"
 
 
 def main():
@@ -271,10 +254,7 @@ def main():
     run_local = args.local or args.skip_es or not os.environ.get("KUBEFLOW_ENDPOINT")
 
     if run_local:
-        mode_reason = "--local flag specified" if args.local else (
-            "--skip-es flag specified" if args.skip_es else
-            "KUBEFLOW_ENDPOINT not set"
-        )
+        mode_reason = _get_mode_reason(args)
         _log.info(f"Running in local standalone mode ({mode_reason})")
         return run_standalone_mode(args)
     else:

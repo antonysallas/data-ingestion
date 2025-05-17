@@ -169,3 +169,6 @@ archive/
 bak/
 practices/
 *.log
+.claude/
+.ruff_cache/
+**/.claude/settings.local.json

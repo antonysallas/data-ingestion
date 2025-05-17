@@ -1,10 +1,9 @@
 import os
 from typing import List, NamedTuple
 
-from kfp.dsl import Artifact, Input, Output
-
 import kfp
 from kfp import dsl, kubernetes
+from kfp.dsl import Artifact, Input, Output
 
 
 @dsl.component()

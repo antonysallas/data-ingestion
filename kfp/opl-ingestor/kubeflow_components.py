@@ -8,14 +8,15 @@ definition for the OPL ingestion pipeline.
 import logging
 import os
 
-from kfp.dsl import Artifact, Input, Output
-
-# Import Kubeflow Pipeline dependencies
 import kfp
 from kfp import dsl, kubernetes
+from kfp.dsl import Artifact, Input, Output
 
 # Configure module logger
 _log = logging.getLogger(__name__)
+
+# Constants
+HTML_PARSER = "html.parser"
 
 
 @dsl.component(
@@ -42,8 +43,8 @@ def load_documents() -> list:
     opl_base_url = "https://openpracticelibrary.com/"
 
     logger.info(f"Fetching practice URLs from {opl_base_url}")
-    response = requests.get(opl_base_url)
-    soup = BeautifulSoup(response.text, "html.parser")
+    response = requests.get(opl_base_url, timeout=30)
+    soup = BeautifulSoup(response.text, HTML_PARSER)
 
     # Find all practice card links
     practice_links = soup.select('div[data-testid="practicecardgrid"] a')
@@ -93,12 +94,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
     """
     import json
     import logging
-    import os
-    import re
     from pathlib import Path
-
-    import requests
-    from bs4 import BeautifulSoup
 
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("format_documents")
@@ -152,7 +148,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
         for md_file in md_files:
             try:
                 # Read markdown content
-                with open(md_file, "r", encoding="utf-8") as f:
+                with open(md_file, encoding="utf-8") as f:
                     content = f.read()
 
                 # Extract title from first line (assumes markdown starts with # Title)
@@ -186,7 +182,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
         """Extract content from Open Practice Library HTML."""
         from bs4 import BeautifulSoup
 
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = BeautifulSoup(html_content, HTML_PARSER)
 
         # Initialize content dictionary
         practice_content = {
@@ -243,7 +239,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
 
         from bs4 import BeautifulSoup
 
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = BeautifulSoup(html_content, HTML_PARSER)
         markdown_output = []
 
         # Process headings
@@ -279,7 +275,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
 
         try:
             # Fetch URL content
-            response = requests.get(source)
+            response = requests.get(source, timeout=30)
             html_content = response.text
 
             # Extract content
@@ -362,7 +358,7 @@ def format_documents(documents: list, splits_artifact: Output[Artifact]):
     failed = 0
 
     for i, url in enumerate(documents):
-        logger.info(f"Processing practice {i+1}/{len(documents)}: {url}")
+        logger.info(f"Processing practice {i + 1}/{len(documents)}: {url}")
 
         if process_practice(url, output_dir):
             successful += 1
@@ -428,9 +424,7 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
 
     # Check if required credentials are set
     if not es_user or not es_pass or not es_host:
-        logger.error(
-            "Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables."
-        )
+        logger.error("Elasticsearch config not present. Check ES_USER, ES_PASS, and ES_HOST environment variables.")
         return
 
     # Initialize Elasticsearch client
@@ -472,18 +466,13 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
                 "properties": {
                     "text": {"type": "text"},
                     "metadata": {"type": "object", "enabled": True},
-                    "vector": {"type": "dense_vector", "dims": 768, "index": True, "similarity": "cosine"}
+                    "vector": {"type": "dense_vector", "dims": 768, "index": True, "similarity": "cosine"},
                 }
             }
 
             # Create the index with appropriate settings
             es_client.indices.create(
-                index=index_name.lower(),
-                mappings=mappings,
-                settings={
-                    "number_of_shards": 1,
-                    "number_of_replicas": 0
-                }
+                index=index_name.lower(), mappings=mappings, settings={"number_of_shards": 1, "number_of_replicas": 0}
             )
             logger.info(f"Successfully created index {index_name.lower()}")
 
@@ -501,18 +490,16 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
         for i in range(0, len(splits), batch_size):
             batch = splits[i : i + batch_size]
             batch_num = (i // batch_size) + 1
-            logger.info(
-                f"Uploading batch {batch_num}/{total_batches} ({len(batch)} documents) to index {index_name}"
-            )
+            logger.info(f"Uploading batch {batch_num}/{total_batches} ({len(batch)} documents) to index {index_name}")
             db.add_documents(batch)
 
         logger.info(f"Successfully uploaded all documents to index {index_name}")
 
     # Process each index and its documents
     # Additional logging to help debug
-    logger.info(
-        f"Got document_splits: type={type(document_splits)}, content format={type(document_splits[0]) if document_splits else 'empty'}"
-    )
+    # Log document splits type information
+    content_format = "empty" if not document_splits else type(document_splits[0])
+    logger.info(f"Got document_splits: type={type(document_splits)}, content format={content_format}")
 
     if not document_splits:
         logger.warning("No document splits found to process. Check previous steps.")
@@ -528,9 +515,7 @@ def ingest_documents(input_artifact: Input[Artifact]) -> None:
             continue
 
         # Convert to Document objects
-        documents = [
-            Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits
-        ]
+        documents = [Document(page_content=split["page_content"], metadata=split["metadata"]) for split in splits]
 
         # Ingest documents
         ingest(index_name=index_name, splits=documents)
@@ -576,29 +561,25 @@ def run_kubeflow_pipeline():
         str: ID of the created run
     """
     # Get Kubeflow endpoint and authentication token
-    KUBEFLOW_ENDPOINT = os.environ.get("KUBEFLOW_ENDPOINT")
-    _log.info(f"Connecting to kfp: {KUBEFLOW_ENDPOINT}")
+    kubeflow_endpoint = os.environ.get("KUBEFLOW_ENDPOINT")
+    _log.info(f"Connecting to kfp: {kubeflow_endpoint}")
 
     # Get service account token
     sa_token_path = "/run/secrets/kubernetes.io/serviceaccount/token"
     if os.path.isfile(sa_token_path):
         with open(sa_token_path) as f:
-            BEARER_TOKEN = f.read().rstrip()
+            bearer_token = f.read().rstrip()
     else:
-        BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
+        bearer_token = os.environ.get("BEARER_TOKEN")
 
-    # Get service account certificate
+    # Get service account certificate - currently not used in client creation
     sa_ca_cert = "/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
-    if os.path.isfile(sa_ca_cert):
-        ssl_ca_cert = sa_ca_cert
-    else:
-        ssl_ca_cert = None
 
     # Create KFP client and run pipeline
     client = kfp.Client(
-        host=KUBEFLOW_ENDPOINT,
-        existing_token=BEARER_TOKEN,
-        ssl_ca_cert=None,
+        host=kubeflow_endpoint,
+        existing_token=bearer_token,
+        # ssl_ca_cert is not used, passing None directly instead of variable
     )
 
     result = client.create_run_from_pipeline_func(
